@@ -9,6 +9,8 @@ set DLL_DST=%BUILD_DIR%\sqlite3.dll
 set BUILD_FLAGS=-vet
 set DO_RUN=
 
+set RUN_FLAGS=complex.db
+
 :: --- Parse arguments ---
 :parse
 if "%~1"=="" goto :done_parse
@@ -19,16 +21,15 @@ shift
 goto :parse
 :done_parse
 
-:: --- Clean ---
+:: --- Clean (only reached via goto :clean) ---
 if not exist "%BUILD_DIR%" goto :after_clean
+goto :after_clean
 :clean
 if exist "%BUILD_DIR%" (
     echo Cleaning "%BUILD_DIR%"...
     rmdir /s /q "%BUILD_DIR%"
 )
-if "%~1"=="" (
-    if "%DO_RUN%"=="" exit /b 0
-)
+exit /b 0
 :after_clean
 
 :: --- Ensure output directory ---
@@ -58,5 +59,5 @@ echo Build succeeded: %OUT%
 :: --- Run (optional) ---
 if defined DO_RUN (
     echo.
-    "%OUT%"
+    "%OUT%" %RUN_FLAGS%
 )

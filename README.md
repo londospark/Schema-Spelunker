@@ -30,6 +30,33 @@ Early development. SQLite3 bindings exist (`sqlite3/` package), schema
 introspection via `PRAGMA table_info` works on the command line. GUI is
 the next frontier.
 
+## Building & running
+
+```
+build.bat              # debug build
+build.bat run          # debug build + run
+build.bat release      # optimized build
+build.bat clean        # remove build output
+```
+
+The spelunker takes a database path as a CLI argument:
+
+```
+schema_spelunker.exe path/to/database.db
+```
+
+## Seeding a test database
+
+A sample multi-tenant Kanban board schema is in `test/complex.sql` with
+16 tables, users, teams, roles, permissions, boards, columns, cards,
+labels, comments, and activity history.
+
+```
+odin build test/seed.odin -file -out:bin\seed.exe
+bin\seed.exe complex.db     # creates complex.db from test/complex.sql
+schema_spelunker.exe complex.db   # explore it
+```
+
 ---
 
 ## GUI framework evaluation

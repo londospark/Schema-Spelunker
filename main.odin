@@ -2,16 +2,25 @@ package main
 
 import "core:fmt"
 import "core:strings"
+import "core:os"
 import  sqlite "sqlite3"
 
 main :: proc() {
 	fmt.println("Hellope! Welcome to the Schema Spelunker")
-	error := test_db_connection("something.db")
+
+	if len(os.args) != 2 {
+		fmt.println("Please call with the filename that you would like to inspect")
+		return
+	}
+
+	filename := os.args[1]
+	error := test_db_connection(filename)
 	fmt.printfln("Return code: %v", error)
 }
 
-test_db_connection :: proc(filename: cstring) -> sqlite.SQLiteError {
-	db := sqlite.open(filename) or_return
+test_db_connection :: proc(filename: string) -> sqlite.SQLiteError {
+	cfilename := strings.clone_to_cstring(filename, context.temp_allocator)
+	db := sqlite.open(cfilename) or_return
 	defer sqlite.close(db)
 	
 	table_stmt := sqlite.prepare(db, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';") or_return
