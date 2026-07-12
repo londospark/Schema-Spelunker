@@ -170,12 +170,17 @@ SQLiteError :: enum c.int {
 // --- PROGRAM CODE ---
 
 main :: proc() {
-	fmt.println("Hellope!")
-	db, open_error := open("something.db")
-	fmt.printfln("Open returned: %v", open_error)
+	fmt.println("Hellope! Welcome to the Schema Spelunker")
+	error := test_db_connection("something.db")
+	fmt.printfln("Return code: %v", error)
+}
 
-	stmt, prepare_error := prepare(db, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';")
-	fmt.printfln("Prepare returned %v", prepare_error)
+test_db_connection :: proc(filename: cstring) -> SQLiteError {
+	db := open(filename) or_return
+	defer _ = close(db)
+
+	stmt := prepare(db, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';") or_return
+	defer _ = finalize(stmt)
 
 	for step(stmt) == .ROW {
 		table_name := column_text(stmt, 0)
@@ -186,16 +191,12 @@ main :: proc() {
 		// to the clanker.
 		sql := strings.clone_to_cstring(fmt.tprintf("PRAGMA table_info(\"%v\")", table_name), context.temp_allocator)
 		column_stmt := prepare(db, sql) or_continue
+		defer _ = finalize(column_stmt)
+
 		for step(column_stmt) == .ROW {
 			fmt.printfln("- %v", column_text(column_stmt, 1))
 		}
-
-		column_finalize_error := finalize(column_stmt)
-		fmt.printfln("Column finalize returned %v", column_finalize_error)
 	}
-	finalize_error := finalize(stmt)
-	fmt.printfln("Finalize returned %v", finalize_error)
 
-	close_error := close(db)
-	fmt.printfln("Close returned %v", close_error)
+	return .OK
 }
