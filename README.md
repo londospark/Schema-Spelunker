@@ -37,7 +37,15 @@ the next frontier.
 The GUI needs to render entity-relationship diagrams: labelled rectangular
 nodes (tables) connected by edges (foreign keys), with zoom/pan selection
 and ideally interactive node-graph editing (drag to rearrange, click to
-inspect). Here are the options being considered.
+inspect).
+
+**Hard requirement:** GPU-accelerated rendering locked at 240 Hz on a
+mobile RTX 4070 at 1920×1080. The application must never feel sluggish
+on high-refresh-rate displays — diagram panning, zooming, and selection
+must be buttery at all times. This rules out any CPU-only rendering
+approach.
+
+Here are the options being considered.
 
 ### Dear ImGui (candidate for prototype)
 
@@ -135,14 +143,33 @@ Direct3D 12, Metal) or a thin abstraction layer.
 - Risk of getting bogged down in infrastructure instead of the
   actual schema exploration problem
 
+### 240 Hz performance note
+
+For a 2D ER diagram tool with at most a few hundred nodes and edges, the
+GPU is never the bottleneck. Any framework that submits draw calls to the
+GPU (ImGui, Raylib, or a custom backend for Microui) can trivially hit
+240 FPS on a 4070 mobile. The real limiting factors are:
+
+- **CPU-side draw submission overhead** — ImGui batches everything into
+  one draw list per frame; Raylib does its own batching. Both are
+  negligible at this complexity level.
+- **Graph layout algorithm** — if layout is computed on the fly during
+  pan/zoom, that's CPU work and could stutter. Pre-computed or
+  incremental layout solves this.
+- **Font rendering** — a few hundred text labels is nothing for a GPU.
+
+In short: all four options *can* hit 240 Hz. The choice between them
+comes down to development speed and philosophical fit, not pixel
+throughput.
+
 ### Summary
 
-| Framework | Prototype speed | Diagram capability | Handmade fit | Long-term polish |
-|---|---|---|---|---|
-| **Dear ImGui** | Fastest | ImNodes gives ER diagrams today | Moderate | Good with custom styling |
-| **Raylib** | Fast | Needs manual diagram interaction | Low-moderate | Good (full framework) |
-| **Microui** | Slow | Everything by hand | Best | Excellent (you own it) |
-| **Custom** | Very slow | Total control | Ultimate | Ultimate (but huge effort) |
+| Framework | Prototype speed | Diagram capability | Handmade fit | 240 Hz | Long-term polish |
+|---|---|---|---|---|---|
+| **Dear ImGui** | Fastest | ImNodes gives ER diagrams today | Moderate | ✅ Trivial | Good with custom styling |
+| **Raylib** | Fast | Needs manual diagram interaction | Low-moderate | ✅ Trivial | Good (full framework) |
+| **Microui** | Slow | Everything by hand | Best | ✅ With GPU backend | Excellent (you own it) |
+| **Custom** | Very slow | Total control | Ultimate | ✅ Guaranteed | Ultimate (but huge effort) |
 
 **Current thinking:** Dear ImGui for a quick prototype (ImNodes makes the
 ER diagram interaction almost free), then evaluate whether to stay with it
