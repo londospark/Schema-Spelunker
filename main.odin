@@ -3,7 +3,9 @@ package main
 import "core:fmt"
 import "core:c"
 
-//@Incomplete - Extand this for other operating systems as we get to them.
+// --- SQLITE3 BINDINGS ---
+
+//@Incomplete - Extend this for other operating systems as we get to them.
 when ODIN_OS == .Windows {
 	@(private) LIB_PATH :: "lib/sqlite3.lib"
 } else {
@@ -33,6 +35,8 @@ open :: proc "c" (filename: cstring) -> (Database, c.int) {
 	error := sqlite3_open(filename, &db)
 	return db, error
 }
+
+// --- PROGRAM CODE ---
 
 main :: proc() {
 	fmt.println("Hellope!")
