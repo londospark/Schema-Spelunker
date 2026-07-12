@@ -35,3 +35,10 @@
       of vendoring the binary DLL
 - [ ] Cross-platform: provide `sqlite3_other.a` for non-Windows targets and
       test the build
+
+## Performance
+
+- [ ] Time build phases with `-show-timings` flag in both debug and release
+- [ ] Time app phases (DB open, introspection queries) using `core:time`
+      to measure and compare debug vs release performance
+- [ ] Establish baseline numbers and track regressions across changes
