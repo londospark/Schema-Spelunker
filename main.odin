@@ -24,14 +24,25 @@ foreign import lib {
 Database :: distinct rawptr
 Statement :: distinct rawptr
 
-@(default_calling_convention = "c", link_prefix="sqlite3_")
+ExecCallback :: #type proc "c" (state: rawptr, column_count: c.int, values: [^]cstring, column_names: [^]cstring) -> c.int
+
+@(default_calling_convention = "c", link_prefix="sqlite3_", require_results)
 foreign lib {
-	@(require_results) step :: proc(stmt: Statement) -> SQLiteError ---
+	step :: proc(stmt: Statement) -> SQLiteError ---
+
+	//@Note: The error message is a pointer to a string because sqlite mallocs, so if you don't pass NULL
+	// then you MUST remember to free the cstring with free from here. Passing NULL gives no error message.
+	exec :: proc(db: Database, sql: cstring, callback: ExecCallback, state: rawptr, error_message: ^cstring) -> SQLiteError ---
 
 	// Returns a pointer that is only valid until the next sqlite call,
 	// get a clone if you would like something longer lived.
-	@(require_results) column_text :: proc(stmt: Statement, column: c.int) -> cstring ---
-	@(require_results) finalize :: proc(stmt: Statement) -> SQLiteError ---
+	column_text :: proc(stmt: Statement, column: c.int) -> cstring ---
+}
+
+@(default_calling_convention = "c", link_prefix="sqlite3_")
+foreign lib {
+	free :: proc(memory: rawptr) ---
+	finalize :: proc(stmt: Statement) -> SQLiteError ---
 	close :: proc(db: Database) -> SQLiteError ---
 }
 
@@ -177,10 +188,10 @@ main :: proc() {
 
 test_db_connection :: proc(filename: cstring) -> SQLiteError {
 	db := open(filename) or_return
-	defer _ = close(db)
+	defer close(db)
 
 	stmt := prepare(db, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';") or_return
-	defer _ = finalize(stmt)
+	defer finalize(stmt)
 
 	for step(stmt) == .ROW {
 		table_name := column_text(stmt, 0)
@@ -191,7 +202,7 @@ test_db_connection :: proc(filename: cstring) -> SQLiteError {
 		// to the clanker.
 		sql := strings.clone_to_cstring(fmt.tprintf("PRAGMA table_info(\"%v\")", table_name), context.temp_allocator)
 		column_stmt := prepare(db, sql) or_continue
-		defer _ = finalize(column_stmt)
+		defer finalize(column_stmt)
 
 		for step(column_stmt) == .ROW {
 			fmt.printfln("- %v", column_text(column_stmt, 1))
