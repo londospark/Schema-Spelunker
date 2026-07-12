@@ -39,11 +39,12 @@ nodes (tables) connected by edges (foreign keys), with zoom/pan selection
 and ideally interactive node-graph editing (drag to rearrange, click to
 inspect).
 
-**Hard requirement:** GPU-accelerated rendering locked at 240 Hz on a
-mobile RTX 4070 at 1920×1080. The application must never feel sluggish
-on high-refresh-rate displays — diagram panning, zooming, and selection
-must be buttery at all times. This rules out any CPU-only rendering
-approach.
+**Hard requirement:** GPU-accelerated rendering, locked at the display's
+native refresh rate, on everything from a laptop RTX 4070 (1600p, 240 Hz)
+to a desktop RTX 5080 (5K2K ultrawide, 165 Hz). RadDBG proves that a
+handmade tool can be instant and responsive — and we're doing a lot less
+work per frame than a debugger. Diagram panning, zooming, and selection
+must never stutter. This rules out any CPU-only rendering approach.
 
 Here are the options being considered.
 
