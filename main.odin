@@ -40,6 +40,14 @@ test_db_connection :: proc(filename: string) -> sqlite.SQLiteError {
 		for sqlite.step(column_stmt) == .ROW {
 			fmt.printfln("- %v", sqlite.column_text(column_stmt, 1))
 		}
+
+		fk_sql := strings.clone_to_cstring(fmt.tprintf("PRAGMA foreign_key_list(\"%v\")", table_name), context.temp_allocator)
+		fk_stmt := sqlite.prepare(db, fk_sql) or_continue
+		defer sqlite.finalize(fk_stmt)
+
+		for sqlite.step(fk_stmt) == .ROW {
+			fmt.printfln("FK: %v -> %v.%v", sqlite.column_text(fk_stmt, 3), sqlite.column_text(fk_stmt, 2), sqlite.column_text(fk_stmt, 4))
+		}
 	}
 
 	return .OK
