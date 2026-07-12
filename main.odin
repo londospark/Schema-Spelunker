@@ -3,7 +3,6 @@ package main
 import "core:fmt"
 import "core:strings"
 import "core:os"
-import "core:c"
 import  sqlite "sqlite3"
 
 main :: proc() {
@@ -34,7 +33,7 @@ test_db_connection :: proc(filename: string) -> sqlite.SQLiteError {
 		column_stmt := sqlite.prepare(db, "SELECT * FROM pragma_table_info(?)") or_return
 		defer sqlite.finalize(column_stmt)
 
-		sqlite.bind_text(column_stmt, 1, table_name, (c.int)(len(table_name)), nil) or_return
+		sqlite.bind_text(column_stmt, 1, table_name) or_return
 
 		for sqlite.step(column_stmt) == .ROW {
 			fmt.printfln("- %v", sqlite.column_text(column_stmt, 1))
@@ -43,7 +42,7 @@ test_db_connection :: proc(filename: string) -> sqlite.SQLiteError {
 		fk_stmt := sqlite.prepare(db, "SELECT * FROM pragma_foreign_key_list(?)") or_return
 		defer sqlite.finalize(fk_stmt)
 
-		sqlite.bind_text(fk_stmt, 1, table_name, (c.int)(len(table_name)), nil) or_return
+		sqlite.bind_text(fk_stmt, 1, table_name) or_return
 
 		for sqlite.step(fk_stmt) == .ROW {
 			fmt.printfln("FK: %v -> %v.%v", sqlite.column_text(fk_stmt, 3), sqlite.column_text(fk_stmt, 2), sqlite.column_text(fk_stmt, 4))
