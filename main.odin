@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:c"
+import "core:strings"
 
 // --- SQLITE3 BINDINGS ---
 
@@ -179,6 +180,18 @@ main :: proc() {
 	for step(stmt) == .ROW {
 		table_name := column_text(stmt, 0)
 		fmt.printfln("Table name %v", table_name)
+
+		//@Safety: We're only calling this with names that have come out of sqlite
+		// There is no way to do the whole placeholder thing here according
+		// to the clanker.
+		sql := strings.clone_to_cstring(fmt.tprintf("PRAGMA table_info(\"%v\")", table_name), context.temp_allocator)
+		column_stmt := prepare(db, sql) or_continue
+		for step(column_stmt) == .ROW {
+			fmt.printfln("- %v", column_text(column_stmt, 1))
+		}
+
+		column_finalize_error := finalize(column_stmt)
+		fmt.printfln("Column finalize returned %v", column_finalize_error)
 	}
 	finalize_error := finalize(stmt)
 	fmt.printfln("Finalize returned %v", finalize_error)
