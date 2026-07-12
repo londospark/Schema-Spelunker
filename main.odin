@@ -1,7 +1,6 @@
 package main
 
 import "core:fmt"
-import "core:c"
 import "core:strings"
 import  sqlite "sqlite3"
 

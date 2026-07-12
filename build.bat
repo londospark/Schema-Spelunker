@@ -6,7 +6,7 @@ set EXE_NAME=schema_spelunker.exe
 set OUT=%BUILD_DIR%\%EXE_NAME%
 set DLL_SRC=sqlite3\sqlite3.dll
 set DLL_DST=%BUILD_DIR%\sqlite3.dll
-set BUILD_FLAGS=
+set BUILD_FLAGS=-vet
 set DO_RUN=
 
 :: --- Parse arguments ---
