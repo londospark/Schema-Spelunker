@@ -4,7 +4,7 @@ setlocal enabledelayedexpansion
 set BUILD_DIR=bin
 set EXE_NAME=schema_spelunker.exe
 set OUT=%BUILD_DIR%\%EXE_NAME%
-set DLL_SRC=lib\sqlite3.dll
+set DLL_SRC=sqlite3\sqlite3.dll
 set DLL_DST=%BUILD_DIR%\sqlite3.dll
 set BUILD_FLAGS=
 set DO_RUN=
