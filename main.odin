@@ -21,9 +21,16 @@ foreign import lib {
 }
 
 Database :: distinct rawptr
+Statement :: distinct rawptr
 
 @(default_calling_convention = "c", link_prefix="sqlite3_")
 foreign lib {
+	@(require_results) step :: proc(stmt: Statement) -> SQLiteError ---
+
+	// Returns a pointer that is only valid until the next sqlite call,
+	// get a clone if you would like something longer lived.
+	@(require_results) column_text :: proc(stmt: Statement, column: c.int) -> cstring ---
+	@(require_results) finalize :: proc(stmt: Statement) -> SQLiteError ---
 	close :: proc(db: Database) -> SQLiteError ---
 }
 
@@ -35,6 +42,17 @@ open :: proc "c" (filename: cstring) -> (Database, SQLiteError) {
 	db: Database
 	error := sqlite3_open(filename, &db)
 	return db, error
+}
+
+prepare :: proc "c" (db: Database, sql: cstring) -> (Statement, SQLiteError) {
+	foreign lib {
+		sqlite3_prepare_v2 :: proc "c" (db: Database, sql: cstring, count: c.int, stmt: ^Statement, tail: ^cstring) -> SQLiteError ---
+	}
+	stmt: Statement
+	// The docs say that you get a little speed up if you give the string length WITH
+	// the null terminator. We can, so we will.
+	error := sqlite3_prepare_v2(db, sql, c.int(len(sql) + 1), &stmt, nil)
+	return stmt, error
 }
 
 SQLiteError :: enum c.int {
@@ -152,8 +170,19 @@ SQLiteError :: enum c.int {
 
 main :: proc() {
 	fmt.println("Hellope!")
-	db, error := open("something.db")
-	fmt.printfln("Call returned: %v", error)
-	error = close(db)
-	fmt.printfln("Close returned %v", error)
+	db, open_error := open("something.db")
+	fmt.printfln("Open returned: %v", open_error)
+
+	stmt, prepare_error := prepare(db, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';")
+	fmt.printfln("Prepare returned %v", prepare_error)
+
+	for step(stmt) == .ROW {
+		table_name := column_text(stmt, 0)
+		fmt.printfln("Table name %v", table_name)
+	}
+	finalize_error := finalize(stmt)
+	fmt.printfln("Finalize returned %v", finalize_error)
+
+	close_error := close(db)
+	fmt.printfln("Close returned %v", close_error)
 }
