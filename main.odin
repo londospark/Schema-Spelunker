@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:strings"
 import "core:os"
+import "core:c"
 import  sqlite "sqlite3"
 
 main :: proc() {
@@ -30,20 +31,19 @@ test_db_connection :: proc(filename: string) -> sqlite.SQLiteError {
 		table_name := sqlite.column_text(table_stmt, 0)
 		fmt.printfln("Table name %v", table_name)
 
-		//@Safety: We're only calling this with names that have come out of sqlite
-		// There is no way to do the whole placeholder thing here according
-		// to the clanker.
-		sql := strings.clone_to_cstring(fmt.tprintf("PRAGMA table_info(\"%v\")", table_name), context.temp_allocator)
-		column_stmt := sqlite.prepare(db, sql) or_continue
+		column_stmt := sqlite.prepare(db, "SELECT * FROM pragma_table_info(?)") or_return
 		defer sqlite.finalize(column_stmt)
+
+		sqlite.bind_text(column_stmt, 1, table_name, (c.int)(len(table_name)), nil) or_return
 
 		for sqlite.step(column_stmt) == .ROW {
 			fmt.printfln("- %v", sqlite.column_text(column_stmt, 1))
 		}
 
-		fk_sql := strings.clone_to_cstring(fmt.tprintf("PRAGMA foreign_key_list(\"%v\")", table_name), context.temp_allocator)
-		fk_stmt := sqlite.prepare(db, fk_sql) or_continue
+		fk_stmt := sqlite.prepare(db, "SELECT * FROM pragma_foreign_key_list(?)") or_return
 		defer sqlite.finalize(fk_stmt)
+
+		sqlite.bind_text(fk_stmt, 1, table_name, (c.int)(len(table_name)), nil) or_return
 
 		for sqlite.step(fk_stmt) == .ROW {
 			fmt.printfln("FK: %v -> %v.%v", sqlite.column_text(fk_stmt, 3), sqlite.column_text(fk_stmt, 2), sqlite.column_text(fk_stmt, 4))

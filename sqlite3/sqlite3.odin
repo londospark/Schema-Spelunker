@@ -28,10 +28,15 @@ CallbackStatus :: enum c.int {
 }
 
 ExecCallback :: #type proc "c" (state: rawptr, column_count: c.int, values: [^]cstring, column_names: [^]cstring) -> CallbackStatus
+Destructor :: #type proc "c" (value: rawptr)
 
 @(default_calling_convention = "c", link_prefix="sqlite3_", require_results)
 foreign lib {
 	step :: proc(stmt: Statement) -> SQLiteError ---
+
+        //@Note: index is 1-based, not 0-based.
+        //@Note: destructor can be nil to have us look after the lifetime of the value.
+        bind_text :: proc(stmt : Statement, index: c.int, value: cstring, bytes: c.int, destructor: Destructor) -> SQLiteError ---
 
 	//@Note: The error message is a pointer to a string because sqlite mallocs, so if you don't pass NULL
 	// then you MUST remember to free the cstring with free from here. Passing NULL gives no error message.
