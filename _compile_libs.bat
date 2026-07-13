@@ -32,9 +32,9 @@ echo Compiling ImGui + ImNodes + rlImGui from source...
 
 if not exist build\imgui mkdir build\imgui
 
-REM Find raylib header location from Odin vendor dir
-for /f "tokens=*" %%i in ('where odin') do set ODIN_ROOT=%%~dpi..
-set RAYLIB_INC=%ODIN_ROOT%\vendor\raylib\windows
+REM Find raylib header location from Odin's vendor dir
+for /f "tokens=*" %%i in ('where odin') do set CACHE_ODIN_DIR=%%~dpi..
+set RAYLIB_INC=%CACHE_ODIN_DIR%Odin\vendor\raylib\windows
 
 set IMGUI=vendor\imgui
 set RLIMGUI=vendor\rlimgui
@@ -45,6 +45,7 @@ set INC=/I%IMGUI% /I%RLIMGUI% /I%RLIMGUI%\include /I%RAYLIB_INC%
 cl /nologo %CFLAGS% /c %INC% ^
 	%IMGUI%\dcimgui.cpp ^
 	%IMGUI%\imgui.cpp ^
+	%IMGUI%\imgui_demo.cpp ^
 	%IMGUI%\imgui_draw.cpp ^
 	%IMGUI%\imgui_tables.cpp ^
 	%IMGUI%\imgui_widgets.cpp ^
