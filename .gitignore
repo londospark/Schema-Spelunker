@@ -4,6 +4,7 @@ something.db
 
 # --- Build output ---
 bin\
+build\
 *.exe
 *.out
 *.o
@@ -11,10 +12,6 @@ bin\
 *.a
 *.lib
 *.dll
-
-# Allow vendored SQLite binaries through
-!sqlite3/sqlite3.lib
-!sqlite3/sqlite3.dll
 
 # --- IDE session files (keep project file, ignore workspace session) ---
 *.sublime-workspace

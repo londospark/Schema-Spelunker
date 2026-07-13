@@ -3,8 +3,8 @@ package main
 import "core:fmt"
 import "core:strings"
 import "core:os"
-import sqlite "sqlite3"
-import rl "vendor:raylib/v6"
+import sqlite "vendor/sqlite3"
+import rl "vendor:raylib"
 
 main :: proc() {
 	fmt.println("Hellope! Welcome to the Schema Spelunker")
@@ -18,10 +18,18 @@ main :: proc() {
 	}
 }
 
+GuiState :: struct {
+	open_dialog: bool,
+	open_dialog_rect: rl.Rectangle
+}
+
 FONT_SIZE :: 18
 
 make_raylib_app :: proc() {
-	open_dialog := false
+	gui_state := GuiState {
+		open_dialog = false,
+		open_dialog_rect = rl.Rectangle {x = 10, y = 10, width = 100, height = 40}
+	}
 
 	rl.SetConfigFlags({.VSYNC_HINT})
 
@@ -43,16 +51,15 @@ make_raylib_app :: proc() {
 
 		rl.ClearBackground(bg)
 
-		rect := rl.Rectangle {x = 10, y = 10, width = 100, height = 40}
-		if rl.GuiButton(rect, "Load DB") {
+		if rl.GuiButton(gui_state.open_dialog_rect, "Load DB") {
 			fmt.println("Load a file")
-			open_dialog = true
+			gui_state.open_dialog = true
 		}
 		rl.GuiLabel(rl.Rectangle{10, 60, 200, 40}, "Hellope!")
 
-		if open_dialog {
+		if gui_state.open_dialog {
 			if rl.GuiWindowBox(rl.Rectangle {100, 100, 300, 400}, "Open File") == 1 {
-				open_dialog = false
+				gui_state.open_dialog = false
 			}
 		}
 	}

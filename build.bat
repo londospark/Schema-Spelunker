@@ -3,14 +3,16 @@ setlocal
 
 set OUT=bin\schema_spelunker.exe
 
-if "%~1"=="clean" ( rmdir /s /q bin & exit /b 0 )
+if "%~1"=="clean" ( rmdir /s /q bin 2>nul & rmdir /s /q build 2>nul & exit /b 0 )
 
 if not exist bin mkdir bin
-if not exist bin\sqlite3.dll copy sqlite3\sqlite3.dll bin\ > nul
+
+call _compile_libs.bat
+if errorlevel 1 exit /b 1
 
 set FLAGS=-vet
 if "%~1"=="release" set FLAGS=-o:speed
 
-odin build . -out:"%OUT%" %FLAGS% || exit /b 1
+call odin build . -out:"%OUT%" %FLAGS% || exit /b 1
 
 if "%~1"=="run" "%OUT%"

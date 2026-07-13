@@ -3,7 +3,7 @@ package main
 import "core:fmt"
 import "core:os"
 import "core:strings"
-import "../sqlite3"
+import "../vendor/sqlite3"
 
 main :: proc() {
 	if len(os.args) < 2 {
