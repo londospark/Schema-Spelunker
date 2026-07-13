@@ -4,13 +4,17 @@ import "core:fmt"
 import "core:strings"
 import "core:os"
 import sqlite "vendor/sqlite3"
-import rl "vendor:raylib"
+import sdl "vendor:sdl3"
+import ig "vendor/imgui"
+import sdl_impl "vendor/imgui/backends"
+import gl_impl "vendor/imgui/backends/opengl3"
+import gl "vendor/gl"
 
 main :: proc() {
 	fmt.println("Hellope! Welcome to the Schema Spelunker")
 
 	if len(os.args) != 2 {
-		make_raylib_app()
+		make_imgui_app()
 	} else {
 		filename := os.args[1]
 		error := extract_database_information(filename)
@@ -18,53 +22,79 @@ main :: proc() {
 	}
 }
 
-GuiState :: struct {
-	open_dialog: bool,
-	open_dialog_rect: rl.Rectangle
-}
-
-FONT_SIZE :: 18
-
-make_raylib_app :: proc() {
-	gui_state := GuiState {
-		open_dialog = false,
-		open_dialog_rect = rl.Rectangle {x = 10, y = 10, width = 100, height = 40}
+make_imgui_app :: proc() {
+	sdl.SetHint("SDL_HINT_IME_SHOW_UI", "1")
+	if !sdl.Init({.VIDEO}) {
+		fmt.eprintfln("SDL3 init failed: %s", sdl.GetError())
+		return
 	}
+	defer sdl.Quit()
 
-	rl.SetConfigFlags({.VSYNC_HINT})
+	window := sdl.CreateWindow("Schema Spelunker", 1600, 900, {.OPENGL, .HIGH_PIXEL_DENSITY})
+	if window == nil {
+		fmt.eprintfln("SDL3 CreateWindow failed: %s", sdl.GetError())
+		return
+	}
+	defer sdl.DestroyWindow(window)
 
-	rl.InitWindow(1600, 900, "Schema Spelunker")
+	// OpenGL 3.3 core context
+	sdl.GL_SetAttribute(.CONTEXT_MAJOR_VERSION, 3)
+	sdl.GL_SetAttribute(.CONTEXT_MINOR_VERSION, 3)
+	sdl.GL_SetAttribute(.CONTEXT_PROFILE_MASK, i32(sdl.GLProfile.CORE))
 
-	font := rl.LoadFontEx("Roboto.ttf", FONT_SIZE, nil, 0)
-	defer rl.UnloadFont(font)
+	gl_context := sdl.GL_CreateContext(window)
+	if gl_context == nil {
+		fmt.eprintfln("SDL3 GL context failed: %s", sdl.GetError())
+		return
+	}
+	defer sdl.GL_DestroyContext(gl_context)
 
-	rl.GuiLoadStyle("dark.rgs")
+	sdl.GL_MakeCurrent(window, gl_context)
+	sdl.GL_SetSwapInterval(0)  // no VSYNC — we use SetTargetFPS equivalent via timer
 
-	rl.GuiSetFont(font)
+	// Init ImGui
+	ig.CreateContext(nil)
+	defer ig.DestroyContext(nil)
 
-	rl.GuiSetStyle(.DEFAULT, i32(rl.GuiDefaultProperty.TEXT_SIZE), FONT_SIZE)
-	bg := rl.GetColor(u32(rl.GuiGetStyle(.DEFAULT, i32(rl.GuiDefaultProperty.BACKGROUND_COLOR))))
+	// Init backends
+	if !sdl_impl.InitForOpenGL(window, gl_context) {
+		fmt.eprintln("ImGui SDL3 backend init failed")
+		return
+	}
+	defer sdl_impl.Shutdown()
 
-	for !rl.WindowShouldClose() {
-		rl.BeginDrawing()
-		defer rl.EndDrawing()
+	if !gl_impl.Init("#version 130") {
+		fmt.eprintln("ImGui OpenGL3 backend init failed")
+		return
+	}
+	defer gl_impl.Shutdown()
 
-		rl.ClearBackground(bg)
-
-		if rl.GuiButton(gui_state.open_dialog_rect, "Load DB") {
-			fmt.println("Load a file")
-			gui_state.open_dialog = true
-		}
-		rl.GuiLabel(rl.Rectangle{10, 60, 200, 40}, "Hellope!")
-
-		if gui_state.open_dialog {
-			if rl.GuiWindowBox(rl.Rectangle {100, 100, 300, 400}, "Open File") == 1 {
-				gui_state.open_dialog = false
+	// Main loop
+	event: sdl.Event
+	running := true
+	for running {
+		for sdl.PollEvent(&event) {
+			if event.type == .QUIT {
+				running = false
 			}
+			sdl_impl.ProcessEvent(&event)
 		}
-	}
 
-	rl.CloseWindow()
+		gl_impl.NewFrame()
+		sdl_impl.NewFrame()
+		ig.NewFrame()
+
+		// — Your ImGui windows go here —
+
+		// Example window (remove this when you have real UI):
+		ig.ShowDemoWindow(nil)
+
+		ig.Render()
+		gl.ClearColor(0.45, 0.55, 0.60, 1.00)
+		gl.Clear(gl.GL_COLOR_BUFFER_BIT)
+		gl_impl.RenderDrawData(ig.GetDrawData())
+		sdl.GL_SwapWindow(window)
+	}
 }
 
 extract_database_information :: proc(filename: string) -> sqlite.SQLiteError {

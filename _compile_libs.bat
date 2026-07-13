@@ -28,19 +28,16 @@ if exist vendor\imgui\imgui.lib exit /b 0
 call :find_msvc
 if errorlevel 1 exit /b 1
 
-echo Compiling ImGui + ImNodes + rlImGui from source...
+echo Compiling ImGui + ImNodes + backends from source...
 
 if not exist build\imgui mkdir build\imgui
 
-REM Find raylib header location from Odin's vendor dir
-for /f "tokens=*" %%i in ('where odin') do set CACHE_ODIN_DIR=%%~dpi..
-set RAYLIB_INC=%CACHE_ODIN_DIR%Odin\vendor\raylib\windows
-
 set IMGUI=vendor\imgui
-set RLIMGUI=vendor\rlimgui
+set SDL3INC=vendor\sdl3_headers
+set VKINC=vendor\vulkan_headers
 
-set CFLAGS=/std:c++17 /O2 /MP /DIMGUI_ENABLE_DOCKING /DIMGUI_IMPL_API= /DNO_FONT_AWESOME
-set INC=/I%IMGUI% /I%RLIMGUI% /I%RLIMGUI%\include /I%RAYLIB_INC%
+set CFLAGS=/std:c++17 /O2 /MP /DIMGUI_ENABLE_DOCKING /DIMGUI_IMPL_API=
+set INC=/I%IMGUI% /I%IMGUI%\backends /I%SDL3INC% /I%VKINC%
 
 cl /nologo %CFLAGS% /c %INC% ^
 	%IMGUI%\dcimgui.cpp ^
@@ -51,7 +48,7 @@ cl /nologo %CFLAGS% /c %INC% ^
 	%IMGUI%\imgui_widgets.cpp ^
 	%IMGUI%\dcimnodes.cpp ^
 	%IMGUI%\imnodes.cpp ^
-	%RLIMGUI%\rlImGui.cpp ^
+	%IMGUI%\backends\imgui_impl_wrapper.cpp ^
 	/Fobuild\imgui\
 
 if errorlevel 1 exit /b 1
