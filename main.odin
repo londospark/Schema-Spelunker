@@ -18,11 +18,18 @@ main :: proc() {
 	}
 }
 
+FONT_SIZE :: 18
+
 make_raylib_app :: proc() {
 	rl.InitWindow(1600, 900, "Schema Spelunker")
 	rl.SetTargetFPS(240)
 
-	show_fps := false
+	font := rl.LoadFontEx("Roboto.ttf", FONT_SIZE, nil, 0)
+	defer rl.UnloadFont(font)
+
+	rl.GuiSetFont(font)
+
+	rl.GuiSetStyle(.DEFAULT, i32(rl.GuiDefaultProperty.TEXT_SIZE), FONT_SIZE)
 
 	for !rl.WindowShouldClose() {
 		rl.BeginDrawing()
@@ -33,16 +40,11 @@ make_raylib_app :: proc() {
 		rl.GuiEnable()
 		defer rl.GuiDisable()
 
-		rect := rl.Rectangle {x = 10, y = 30, width = 300, height = 40}
-		if rl.GuiButton(rect, "Press Me") {
-			show_fps = !show_fps
+		rect := rl.Rectangle {x = 10, y = 10, width = 100, height = 40}
+		if rl.GuiButton(rect, "Load DB") {
+			fmt.println("Load a file")
 		}
-
-		if show_fps {
-			rl.DrawFPS(10, 10)
-		}
-
-		rl.DrawText("Hellope!", 10, 100, 40, rl.BLACK)
+		rl.GuiLabel(rl.Rectangle{10, 60, 200, 40}, "Hellope!")
 	}
 
 	rl.CloseWindow()
