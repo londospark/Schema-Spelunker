@@ -54,7 +54,7 @@ make_imgui_app :: proc() {
 	sdl.GL_SetSwapInterval(1)  // VSYNC on — SDL3's event-driven input shouldn't lag like raylib's polling did
 
 	// Init ImGui
-	ig.CreateContext(nil)
+	ig.CreateContext()
 	defer ig.DestroyContext(nil)
 
 	// Init backends
@@ -74,7 +74,9 @@ make_imgui_app :: proc() {
 	event: sdl.Event
 	running := true
 	was_active := false
+	filename: cstring = "Roboto.ttf"
 	io := ig.GetIO()
+	ig.FontAtlas_AddFontFromFileTTF(io.Fonts, filename)
 	for running {
 		for sdl.PollEvent(&event) {
 			if event.type == .QUIT {

@@ -2035,15 +2035,10 @@ PlatformeData :: struct {
 	ViewportId: ID, // ID of platform window/viewport.
 }
 
+
 @(default_calling_convention = "c", link_prefix = "ImGui_")
 foreign imguilib {
 	// == (_TexData ? _TexData->TexID : _TexID) // Implemented below in the file.
-	TextureRef_GetTexID :: proc(
-		self: ^TextureRef) -> TextureID ---
-	// Context creation and access
-	// - Each context create its own ImFontAtlas by default. You may instance one yourself and pass it to CreateContext() to share a font atlas between contexts.
-	// - DLL users: heaps and globals are not shared across DLL boundaries! You will need to call SetCurrentContext() + SetAllocatorFunctions()
-	//   for each static/DLL boundary you are calling from. Read "Context and Memory Allocators" section of imgui.cpp for details.
 	CreateContext :: proc(
 		shared_font_atlas: ^FontAtlas = nil) -> ^Context ---
 	// NULL = destroy current context
@@ -3792,6 +3787,16 @@ foreign imguilib {
 	FindViewportByPlatformHandle :: proc(
 		platform_handle: rawptr) -> ^Viewport ---
 	// Construct a zero-size ImVector<> (of any type). This is primarily useful when calling ImFontGlyphRangesBuilder_BuildRanges()
+}
+
+@(default_calling_convention = "c", link_prefix = "Im")
+foreign imguilib {
+	TextureRef_GetTexID :: proc(
+		self: ^TextureRef) -> TextureID ---
+	// Context creation and access
+	// - Each context create its own ImFontAtlas by default. You may instance one yourself and pass it to CreateContext() to share a font atlas between contexts.
+	// - DLL users: heaps and globals are not shared across DLL boundaries! You will need to call SetCurrentContext() + SetAllocatorFunctions()
+	//   for each static/DLL boundary you are calling from. Read "Context and Memory Allocators" section of imgui.cpp for details.
 	Vector_Construct :: proc(
 		vector: rawptr) ---
 	// Destruct an ImVector<> (of any type). Important: Frees the vector memory but does not call destructors on contained objects (if they have them)
@@ -4618,6 +4623,7 @@ foreign imguilib {
 	FontAtlas_AddFontDefaultBitmap :: proc(
 		self: ^FontAtlas,
 		font_cfg: ^FontConfig = nil) -> ^Font ---
+	@(link_name = "ImFontAtlas_AddFontFromFileTTF")
 	FontAtlas_AddFontFromFileTTF :: proc(
 		self: ^FontAtlas,
 		filename: cstring,

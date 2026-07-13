@@ -30,5 +30,9 @@ echo Generating dcimgui from imgui.h...
 %PY% "%DEPS%\dear_bindings\dear_bindings.py" --nogeneratedefaultargfunctions -o "%VENDOR%dcimgui" "%VENDOR%imgui.h"
 if errorlevel 1 exit /b 1
 
+echo Fixing Odin binding link-prefixes for underscore-namespaced functions...
+powershell -NoProfile -ExecutionPolicy RemoteSigned -File "%VENDOR%fix_foreign_prefixes.ps1" "%VENDOR%imgui.odin"
+if errorlevel 1 exit /b 1
+
 echo Done. Generated files:
 dir "%VENDOR%dcimgui*" /b
