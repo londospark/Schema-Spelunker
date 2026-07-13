@@ -48,7 +48,8 @@ cl /nologo %CFLAGS% /c %INC% ^
 	%IMGUI%\imgui_widgets.cpp ^
 	%IMGUI%\dcimnodes.cpp ^
 	%IMGUI%\imnodes.cpp ^
-	%IMGUI%\backends\imgui_impl_wrapper.cpp ^
+	%IMGUI%\backends\imgui_impl_sdl3.cpp ^
+	%IMGUI%\backends\imgui_impl_opengl3.cpp ^
 	/Fobuild\imgui\
 
 if errorlevel 1 exit /b 1

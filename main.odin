@@ -50,7 +50,7 @@ make_imgui_app :: proc() {
 	defer sdl.GL_DestroyContext(gl_context)
 
 	sdl.GL_MakeCurrent(window, gl_context)
-	sdl.GL_SetSwapInterval(0)  // no VSYNC — we use SetTargetFPS equivalent via timer
+	sdl.GL_SetSwapInterval(1)  // VSYNC on — SDL3's event-driven input shouldn't lag like raylib's polling did
 
 	// Init ImGui
 	ig.CreateContext(nil)
@@ -80,19 +80,26 @@ make_imgui_app :: proc() {
 			sdl_impl.ProcessEvent(&event)
 		}
 
+		gl.ClearColor(0.45, 0.55, 0.60, 1.00)
+		gl.Clear(gl.GL_COLOR_BUFFER_BIT)
+
 		gl_impl.NewFrame()
 		sdl_impl.NewFrame()
 		ig.NewFrame()
 
 		// — Your ImGui windows go here —
-
-		// Example window (remove this when you have real UI):
 		ig.ShowDemoWindow(nil)
 
 		ig.Render()
-		gl.ClearColor(0.45, 0.55, 0.60, 1.00)
-		gl.Clear(gl.GL_COLOR_BUFFER_BIT)
 		gl_impl.RenderDrawData(ig.GetDrawData())
+
+		// VSync normally on, off while dragging/resizing — avoids the 1–2 frame
+		// latency penalty when the user is actively moving windows.
+		if ig.IsAnyItemActive() {
+			sdl.GL_SetSwapInterval(0)
+		} else {
+			sdl.GL_SetSwapInterval(1)
+		}
 		sdl.GL_SwapWindow(window)
 	}
 }
