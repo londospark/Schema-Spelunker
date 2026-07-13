@@ -1,63 +1,16 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal
 
-set BUILD_DIR=bin
-set EXE_NAME=schema_spelunker.exe
-set OUT=%BUILD_DIR%\%EXE_NAME%
-set DLL_SRC=sqlite3\sqlite3.dll
-set DLL_DST=%BUILD_DIR%\sqlite3.dll
-set BUILD_FLAGS=-vet
-set DO_RUN=
+set OUT=bin\schema_spelunker.exe
 
-set RUN_FLAGS=
+if "%~1"=="clean" ( rmdir /s /q bin & exit /b 0 )
 
-:: --- Parse arguments ---
-:parse
-if "%~1"=="" goto :done_parse
-if /i "%~1"=="run"    set DO_RUN=1
-if /i "%~1"=="release" set BUILD_FLAGS=-o:speed
-if /i "%~1"=="clean"   goto :clean
-shift
-goto :parse
-:done_parse
-goto :after_clean
+if not exist bin mkdir bin
+if not exist bin\sqlite3.dll copy sqlite3\sqlite3.dll bin\ > nul
 
-:: --- Clean ---
-:clean
-if exist "%BUILD_DIR%" (
-    echo Cleaning "%BUILD_DIR%"...
-    rmdir /s /q "%BUILD_DIR%"
-)
-exit /b 0
+set FLAGS=-vet
+if "%~1"=="release" set FLAGS=-o:speed
 
-:after_clean
+odin build . -out:"%OUT%" %FLAGS% || exit /b 1
 
-:: --- Ensure output directory ---
-if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
-
-:: --- Copy DLL only if missing ---
-if not exist "%DLL_DST%" (
-    if exist "%DLL_SRC%" (
-        copy /Y "%DLL_SRC%" "%DLL_DST%" > nul
-        echo Copied %DLL_SRC% -^> %DLL_DST%
-    ) else (
-        echo Error: %DLL_SRC% not found. Make sure you cloned with Git LFS
-        echo        or downloaded the file manually.
-        exit /b 1
-    )
-)
-
-:: --- Build ---
-echo Building...
-call odin build . -out:"%OUT%" %BUILD_FLAGS%
-if errorlevel 1 (
-    echo Build failed.
-    exit /b 1
-)
-echo Build succeeded: %OUT%
-
-:: --- Run (optional) ---
-if defined DO_RUN (
-    echo.
-    "%OUT%" %RUN_FLAGS%
-)
+if "%~1"=="run" "%OUT%"
