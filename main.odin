@@ -23,8 +23,9 @@ FONT_SIZE :: 18
 make_raylib_app :: proc() {
 	open_dialog := false
 
+	rl.SetConfigFlags({.VSYNC_HINT})
+
 	rl.InitWindow(1600, 900, "Schema Spelunker")
-	rl.SetTargetFPS(240)
 
 	font := rl.LoadFontEx("Roboto.ttf", FONT_SIZE, nil, 0)
 	defer rl.UnloadFont(font)
