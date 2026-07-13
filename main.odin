@@ -27,15 +27,18 @@ make_raylib_app :: proc() {
 	font := rl.LoadFontEx("Roboto.ttf", FONT_SIZE, nil, 0)
 	defer rl.UnloadFont(font)
 
+	rl.GuiLoadStyle("dark.rgs")
+
 	rl.GuiSetFont(font)
 
 	rl.GuiSetStyle(.DEFAULT, i32(rl.GuiDefaultProperty.TEXT_SIZE), FONT_SIZE)
+	bg := rl.GetColor(u32(rl.GuiGetStyle(.DEFAULT, i32(rl.GuiDefaultProperty.BACKGROUND_COLOR))))
 
 	for !rl.WindowShouldClose() {
 		rl.BeginDrawing()
 		defer rl.EndDrawing()
 
-		rl.ClearBackground(rl.RAYWHITE)
+		rl.ClearBackground(bg)
 
 		rl.GuiEnable()
 		defer rl.GuiDisable()
