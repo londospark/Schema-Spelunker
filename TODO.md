@@ -16,19 +16,24 @@
 
 ## GUI
 
-- [ ] Floating file dialog with custom file browser
-- [ ] Render a basic ER diagram: tables as labelled nodes, FK relationships
-      as edges
+- [ ] Write `gui.odin`: ImGui + rlImGui setup (docking enabled)
+- [ ] Query and display schema data in ImGui tree/lists
+- [ ] Open DB from GUI (file dialog)
+- [ ] ER diagram node graph via ImNodes:
+      tables as labelled nodes, FK relationships as edges
 - [ ] Node canvas — drag, zoom, select
 - [ ] Sub-diagram view (1–2 degrees of separation from a selected table)
-- [ ] Open DB from GUI file dialog
+- [ ] Schema snapshot viewer (load from file, no DB needed)
 
 ## Build / project
 
-- [ ] Amalgamation build: compile SQLite from `sqlite3.c` + `sqlite3.h` instead
+- [x] Amalgamation build: compile SQLite from `sqlite3.c` + `sqlite3.h` instead
       of vendoring the binary DLL
-- [ ] Cross-platform: provide `sqlite3_other.a` for non-Windows targets and
-      test the build
+- [x] Vendor ImGui docking branch source + cimgui bindings
+- [x] Vendor ImNodes + rlImGui for raylib backend
+- [ ] Custom `gui.odin` entry point with docking + open/save file dialogs
+- [ ] Cross-platform: test the build on Linux and macOS (need `setup.sh`)
+- [ ] Linux: provide `sqlite3.a` and `imgui.a` for non-Windows targets
 
 ## Performance
 
