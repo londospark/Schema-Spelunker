@@ -1,14 +1,14 @@
 package imnodes
 
 // Odin bindings for ImNodes (nelarius/imnodes).
-// Calls into the same compiled .lib as imgui.odin (vendor/imgui/imgui.lib).
+// C++ sources are compiled into vendor/imgui/imgui.lib alongside ImGui.
 
 when ODIN_OS == .Windows {
 	@export
-	foreign import imnodeslib "imgui.lib"
+	foreign import imnodeslib "../imgui/imgui.lib"
 } else {
 	@export
-	foreign import imnodeslib "imgui.a"
+	foreign import imnodeslib "../imgui/imgui.a"
 }
 
 @(default_calling_convention="c", link_prefix="imn")
