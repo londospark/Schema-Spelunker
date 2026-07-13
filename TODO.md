@@ -1,6 +1,6 @@
 # TODO
 
-## Schema loading (immediate)
+## Schema loading
 
 - [ ] Column type accessors: `column_int`, `column_double`, `column_type`,
       `column_count`, `column_name`
@@ -14,20 +14,14 @@
       repeated DB hits
 - [ ] CLI mode: `schema_spelunker dump something.db` to produce the snapshot
 
-## GUI (prototype)
+## GUI
 
-- [ ] Integrate Dear ImGui for the first-pass GUI prototype
-      (vendor bindings already available in Odin)
+- [ ] Floating file dialog with custom file browser
 - [ ] Render a basic ER diagram: tables as labelled nodes, FK relationships
       as edges
-- [ ] ImNodes for interactive node graph — drag, zoom, select
+- [ ] Node canvas — drag, zoom, select
 - [ ] Sub-diagram view (1–2 degrees of separation from a selected table)
-- [ ] Open DB from GUI file dialog instead of hardcoded path
-
-## GUI framework evaluation
-
-- [x] Document pros/cons of Dear ImGui, Raylib, Microui, and custom
-      renderer in README.md
+- [ ] Open DB from GUI file dialog
 
 ## Build / project
 
