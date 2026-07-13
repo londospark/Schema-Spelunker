@@ -20,16 +20,16 @@ if /i "%~1"=="clean"   goto :clean
 shift
 goto :parse
 :done_parse
-
-:: --- Clean (only reached via goto :clean) ---
-if not exist "%BUILD_DIR%" goto :after_clean
 goto :after_clean
+
+:: --- Clean ---
 :clean
 if exist "%BUILD_DIR%" (
     echo Cleaning "%BUILD_DIR%"...
     rmdir /s /q "%BUILD_DIR%"
 )
 exit /b 0
+
 :after_clean
 
 :: --- Ensure output directory ---
