@@ -43,9 +43,6 @@ make_raylib_app :: proc() {
 
 		rl.ClearBackground(bg)
 
-		rl.GuiEnable()
-		defer rl.GuiDisable()
-
 		rect := rl.Rectangle {x = 10, y = 10, width = 100, height = 40}
 		if rl.GuiButton(rect, "Load DB") {
 			fmt.println("Load a file")
