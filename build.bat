@@ -9,7 +9,7 @@ set DLL_DST=%BUILD_DIR%\sqlite3.dll
 set BUILD_FLAGS=-vet
 set DO_RUN=
 
-set RUN_FLAGS=complex.db
+set RUN_FLAGS=
 
 :: --- Parse arguments ---
 :parse

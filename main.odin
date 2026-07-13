@@ -3,22 +3,52 @@ package main
 import "core:fmt"
 import "core:strings"
 import "core:os"
-import  sqlite "sqlite3"
+import sqlite "sqlite3"
+import rl "vendor:raylib/v6"
 
 main :: proc() {
 	fmt.println("Hellope! Welcome to the Schema Spelunker")
 
 	if len(os.args) != 2 {
-		fmt.println("Please call with the filename that you would like to inspect")
-		return
+		make_raylib_app()
+	} else {
+		filename := os.args[1]
+		error := extract_database_information(filename)
+		fmt.printfln("Return code: %v", error)
 	}
-
-	filename := os.args[1]
-	error := test_db_connection(filename)
-	fmt.printfln("Return code: %v", error)
 }
 
-test_db_connection :: proc(filename: string) -> sqlite.SQLiteError {
+make_raylib_app :: proc() {
+	rl.InitWindow(1600, 900, "Schema Spelunker")
+	rl.SetTargetFPS(240)
+
+	show_fps := false
+
+	for !rl.WindowShouldClose() {
+		rl.BeginDrawing()
+		defer rl.EndDrawing()
+
+		rl.ClearBackground(rl.RAYWHITE)
+
+		rl.GuiEnable()
+		defer rl.GuiDisable()
+
+		rect := rl.Rectangle {x = 10, y = 30, width = 300, height = 40}
+		if rl.GuiButton(rect, "Press Me") {
+			show_fps = !show_fps
+		}
+
+		if show_fps {
+			rl.DrawFPS(10, 10)
+		}
+
+		rl.DrawText("Hellope!", 10, 100, 40, rl.BLACK)
+	}
+
+	rl.CloseWindow()
+}
+
+extract_database_information :: proc(filename: string) -> sqlite.SQLiteError {
 	cfilename := strings.clone_to_cstring(filename, context.temp_allocator)
 	db := sqlite.open(cfilename) or_return
 	defer sqlite.close(db)
