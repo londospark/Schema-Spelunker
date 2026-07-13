@@ -21,6 +21,8 @@ main :: proc() {
 FONT_SIZE :: 18
 
 make_raylib_app :: proc() {
+	open_dialog := false
+
 	rl.InitWindow(1600, 900, "Schema Spelunker")
 	rl.SetTargetFPS(240)
 
@@ -46,8 +48,15 @@ make_raylib_app :: proc() {
 		rect := rl.Rectangle {x = 10, y = 10, width = 100, height = 40}
 		if rl.GuiButton(rect, "Load DB") {
 			fmt.println("Load a file")
+			open_dialog = true
 		}
 		rl.GuiLabel(rl.Rectangle{10, 60, 200, 40}, "Hellope!")
+
+		if open_dialog {
+			if rl.GuiWindowBox(rl.Rectangle {100, 100, 300, 400}, "Open File") == 1 {
+				open_dialog = false
+			}
+		}
 	}
 
 	rl.CloseWindow()
