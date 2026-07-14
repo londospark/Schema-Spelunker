@@ -42,6 +42,19 @@ SQLite schema browser. SDL3 + Dear ImGui + OpenGL 3.3.
 - **Explain tradeoffs.** If I ask about approach A vs B, give pros/cons and a recommendation, but let me decide.
 - **Read the full file before editing.** Don't assume structure.
 
+## Commit rules
+
+- **Only commit when I ask you to.** Do not stage or commit unprompted.
+- Exception: if I say "push" without "commit", stage + commit + push as a single step.
+
+## TODO.md rules
+
+- **You are responsible for keeping TODO.md up to date.**
+- **Never remove entries.** Mark them `[x]` when done.
+- All entries must have: `[S/M/L]` size, `[P0/P1/P2]` priority, `[cat]` category tag.
+- When a task is completed, update its status and add the completed date inline if relevant.
+- When a new task is discovered mid-session, add it to the appropriate section immediately.
+
 ## Current state
 
 - CLI path: `extract_database_information` prints schema to stdout (legacy, still works).
