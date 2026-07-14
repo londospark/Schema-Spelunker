@@ -8,7 +8,6 @@ import sdl "vendor:sdl3"
 import ig "vendor/imgui"
 import sdl_impl "vendor/imgui/backends"
 import gl_impl "vendor/imgui/backends/opengl3"
-import gl "vendor/gl"
 
 main :: proc() {
 	fmt.println("Hellope! Welcome to the Schema Spelunker")
@@ -51,7 +50,8 @@ make_imgui_app :: proc() {
 	defer sdl.GL_DestroyContext(gl_context)
 
 	sdl.GL_MakeCurrent(window, gl_context)
-	sdl.GL_SetSwapInterval(1)  // VSYNC on — SDL3's event-driven input shouldn't lag like raylib's polling did
+	sdl.GL_SetSwapInterval(-1)  // Adaptive V-SYNC
+	font_filename: cstring = "Roboto.ttf"
 
 	// Init ImGui
 	ig.CreateContext()
@@ -64,7 +64,7 @@ make_imgui_app :: proc() {
 	}
 	defer sdl_impl.Shutdown()
 
-	if !gl_impl.Init("#version 130") {
+	if !gl_impl.Init("#version 330 core") {
 		fmt.eprintln("ImGui OpenGL3 backend init failed")
 		return
 	}
@@ -73,46 +73,27 @@ make_imgui_app :: proc() {
 	// Main loop
 	event: sdl.Event
 	running := true
-	was_active := false
-	filename: cstring = "Roboto.ttf"
 	io := ig.GetIO()
-	ig.FontAtlas_AddFontFromFileTTF(io.Fonts, filename)
+	io.ConfigFlags |= {.DockingEnable}
+	ig.FontAtlas_AddFontFromFileTTF(io.Fonts, font_filename)
 	for running {
-		for sdl.PollEvent(&event) {
-			if event.type == .QUIT {
-				running = false
-			}
+		_ = sdl.WaitEvent(&event)
+		for {
 			sdl_impl.ProcessEvent(&event)
+			if event.type == .QUIT { running = false; break }
+			if !sdl.PollEvent(&event) do break
 		}
-
-		gl.ClearColor(0.45, 0.55, 0.60, 1.00)
-		gl.Clear(gl.GL_COLOR_BUFFER_BIT)
-
-		// Freshen ImGui's mouse position before new frame —
-		// polls the current hardware position rather than relying
-		// on the last queued event, reducing perceived latency by ~8ms.
-		mx, my: f32
-		_ = sdl.GetMouseState(&mx, &my)  // discard buttons mask
-		io.MousePos = ig.Vec2{mx, my}
 
 		gl_impl.NewFrame()
 		sdl_impl.NewFrame()
 		ig.NewFrame()
+		ig.DockSpaceOverViewport(viewport = ig.GetMainViewport())
 
 		// — Your ImGui windows go here —
-		ig.ShowDemoWindow(nil)
 
 		ig.Render()
 		gl_impl.RenderDrawData(ig.GetDrawData())
 
-		// VSync on when idle, off the moment the mouse goes down.
-		// This eliminates the "stiction" at drag start — by the time
-		// ImGui registers the drag the VSync is already off.
-		dragging := ig.IsAnyMouseDown()
-		if dragging != was_active {
-			was_active = dragging
-			sdl.GL_SetSwapInterval(dragging ? 0 : 1)
-		}
 		sdl.GL_SwapWindow(window)
 	}
 }

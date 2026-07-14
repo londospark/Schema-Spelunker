@@ -24,7 +24,7 @@ main :: proc() {
 	}
 	defer delete(data)
 	
-	db, open_err := sqlite3.open(strings.clone_to_cstring(db_path))
+	db, open_err := sqlite3.open(strings.clone_to_cstring(db_path, context.temp_allocator))
 	if open_err != .OK {
 		fmt.eprintfln("Failed to open database: %v", open_err)
 		os.exit(1)
