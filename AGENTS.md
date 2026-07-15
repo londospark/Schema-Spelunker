@@ -17,10 +17,13 @@ SQLite schema browser. SDL3 + Dear ImGui + OpenGL 3.3.
 
 ## Build
 
-`build.bat` — copies sqlite3.dll, runs `odin build . -vet`.
-`build.bat release` — adds `-o:speed`.
-`build.bat run` — builds and launches.
-`build.bat clean` — deletes bin/.
+**Windows:** `build.bat [run|release|clean]` — compiles vendor libs, then `odin build . -vet`.
+`build.bat run` builds and launches.
+`build.bat release` adds `-o:speed`.
+`build.bat clean` removes `bin/` and `build/`.
+
+**Linux:** `./build.sh [run|release|clean]` — same semantics.
+`./seed.sh` — builds and runs `test/seed.odin` to create `seed.db`.
 
 ## Key design decisions
 
@@ -41,6 +44,7 @@ SQLite schema browser. SDL3 + Dear ImGui + OpenGL 3.3.
 - **No frameworks.** No nvrhi, no custom abstractions, no engine. SDL3 + ImGui + SQLite is the stack.
 - **Explain tradeoffs.** If I ask about approach A vs B, give pros/cons and a recommendation, but let me decide.
 - **Read the full file before editing.** Don't assume structure.
+- **Never guess APIs.** Check vendor bindings, `odin doc`, or the core library before suggesting function names. Bad guesses waste time.
 
 ## Commit rules
 

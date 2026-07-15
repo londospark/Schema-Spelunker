@@ -11,16 +11,22 @@ import ig "vendor/imgui"
 import sdl_impl "vendor/imgui/backends"
 import gl_impl "vendor/imgui/backends/opengl3"
 
+Window :: struct {
+	show: bool
+}
+
 BUF_LEN :: 1024
 FileDialog :: struct {
+	using window: Window,
 	selected_file: i32,
-	filename_buffer: [BUF_LEN]u8,
+	path_buffer: [BUF_LEN]u8,
 	items_in_folder: [dynamic]cstring,
 	arena: mem.Dynamic_Arena,
 }
 
 make_file_dialog :: proc() -> FileDialog {
 	fd: FileDialog
+	fd.show = true //Show on startup
 	fd.selected_file = -1
 	mem.dynamic_arena_init(&fd.arena)
 	alloc := mem.dynamic_arena_allocator(&fd.arena)
@@ -69,7 +75,10 @@ make_imgui_app :: proc() {
 	defer sdl.GL_DestroyContext(gl_context)
 
 	sdl.GL_MakeCurrent(window, gl_context)
-	sdl.GL_SetSwapInterval(0)  // no VSync — we pace the loop manually
+	sdl.GL_SetSwapInterval(0)
+	//@Note: adaptive vsync (swap interval -1) causes horrible input lag on
+	// some GLX/EGL configurations despite being "adaptive".  We tried it.
+	// Instead we run uncapped and pace the loop ourselves with a sleep.
 
 	// Init ImGui
 	ig.CreateContext()
@@ -152,55 +161,60 @@ make_imgui_app :: proc() {
 		ig.NewFrame()
 		ig.DockSpaceOverViewport(viewport = ig.GetMainViewport())
 
-		ig.SetNextWindowSize(ig.Vec2{300, 500}, .Appearing)
-		if ig.Begin("Open File...") {
+		if file_dialog.show {
+			ig.SetNextWindowSize(ig.Vec2{300, 500}, .Appearing)
+			if ig.Begin("Open File...") {
+				mem.dynamic_arena_free_all(&file_dialog.arena)
+				alloc := mem.dynamic_arena_allocator(&file_dialog.arena)
+	
+				directory_path := os.get_working_directory(context.temp_allocator) or_continue
+				directory_handle := os.open(directory_path) or_continue
+				defer os.close(directory_handle)
 
-			directory_path := os.get_working_directory(context.temp_allocator) or_continue
-			directory_handle := os.open(directory_path) or_continue
-			defer os.close(directory_handle)
+				file_dialog.path_buffer = {}
+				copy(file_dialog.path_buffer[:], directory_path)
 
-			files := os.read_dir(directory_handle, -1, context.temp_allocator) or_continue
-			defer os.file_info_slice_delete(files, context.temp_allocator)
-
-			mem.dynamic_arena_free_all(&file_dialog.arena)
-			alloc := mem.dynamic_arena_allocator(&file_dialog.arena)
-			file_dialog.items_in_folder = make([dynamic]cstring, alloc)
-			append(&file_dialog.items_in_folder, "../")
-			for f in files {
-				name: cstring
-				if f.type == .Directory {
-					name = strings.clone_to_cstring(fmt.tprintf("%v/", f.name), alloc)
-				} else {
-					name = strings.clone_to_cstring(f.name, alloc)
-				}
-				append(&file_dialog.items_in_folder, name)
-			}
-
-			style := ig.GetStyle()
-			ig.PushItemWidth(ig.GetContentRegionAvail().x)
-			ig.InputText("##filename", cstring(&file_dialog.filename_buffer[0]), BUF_LEN)
-			ig.PopItemWidth()
-
-			avail := ig.GetContentRegionAvail()
-			listbox_height := avail.y - ig.GetFrameHeightWithSpacing() - style.ItemSpacing.y
-			if ig.BeginListBox("##folder", ig.Vec2{avail.x, listbox_height}) {
-				for item, i in file_dialog.items_in_folder {
-					is_selected := i32(i) == file_dialog.selected_file
-					if ig.SelectableBoolPtr(item, &is_selected) {
-						file_dialog.selected_file = i32(i)
+				files := os.read_dir(directory_handle, -1, context.temp_allocator) or_continue
+				defer os.file_info_slice_delete(files, context.temp_allocator)
+	
+				file_dialog.items_in_folder = make([dynamic]cstring, alloc)
+				append(&file_dialog.items_in_folder, "../")
+				for f in files {
+					name: cstring
+					if f.type == .Directory {
+						name = strings.clone_to_cstring(fmt.tprintf("%v/", f.name), alloc)
+					} else {
+						name = strings.clone_to_cstring(f.name, alloc)
 					}
-					if is_selected {
-						ig.SetItemDefaultFocus()
-					}
+					append(&file_dialog.items_in_folder, name)
 				}
-				ig.EndListBox()
+	
+				style := ig.GetStyle()
+				ig.PushItemWidth(ig.GetContentRegionAvail().x)
+				ig.InputText("##path", cstring(&file_dialog.path_buffer[0]), BUF_LEN)
+				ig.PopItemWidth()
+	
+				avail := ig.GetContentRegionAvail()
+				listbox_height := avail.y - ig.GetFrameHeightWithSpacing() - style.ItemSpacing.y
+				if ig.BeginListBox("##folder", ig.Vec2{avail.x, listbox_height}) {
+					for item, i in file_dialog.items_in_folder {
+						is_selected := i32(i) == file_dialog.selected_file
+						if ig.SelectableBoolPtr(item, &is_selected) {
+							file_dialog.selected_file = i32(i)
+						}
+						if is_selected {
+							ig.SetItemDefaultFocus()
+						}
+					}
+					ig.EndListBox()
+				}
+	
+				if ig.Button("Cancel") do file_dialog.show = false
+				ig.SameLine()
+				ig.Button("Open")
 			}
-
-			ig.Button("Cancel")
-			ig.SameLine()
-			ig.Button("Open")
+			ig.End()
 		}
-		ig.End()
 
 		ig.Render()
 		gl_impl.RenderDrawData(ig.GetDrawData())

@@ -27,6 +27,13 @@ Legend: `[S/M/L]` = size · `[P0/P1/P2]` = priority · `[cat]` = category
 - [x] `[S]` `[P0]` `[gui]` Roboto TTF font loading
 - [ ] `[M]` `[P1]` `[gui]` File dialog: custom ImGui window with file list,
       path navigation, open/cancel
+  - [x] `[S]` `[P1]` Cancel button wired (closes or resets)
+  - [ ] `[S]` `[P1]` Open button — open selected file
+  - [ ] `[S]` `[P1]` Double-click on file to confirm / on dir to navigate in
+  - [ ] `[S]` `[P1]` Directory navigation (up, into subdirs)
+  - [ ] `[S]` `[P1]` Keyboard shortcuts (Enter to confirm, Esc to cancel)
+  - [ ] `[S]` `[P2]` Path bar showing current directory
+  - [ ] `[S]` `[P2]` File type filter (`.db`, `.sqlite`, `*`)
 - [x] `[S]` `[P1]` `[gui]` File dialog: use arena allocator for per-frame
       directory listing (reset each frame, no per-element delete)
 - [ ] `[M]` `[P1]` `[gui]` Query and display schema data in ImGui tree/lists
