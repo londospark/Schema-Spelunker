@@ -27,7 +27,7 @@ Legend: `[S/M/L]` = size · `[P0/P1/P2]` = priority · `[cat]` = category
 - [x] `[S]` `[P0]` `[gui]` Roboto TTF font loading
 - [ ] `[M]` `[P1]` `[gui]` File dialog: custom ImGui window with file list,
       path navigation, open/cancel
-- [ ] `[S]` `[P1]` `[gui]` File dialog: use arena allocator for per-frame
+- [x] `[S]` `[P1]` `[gui]` File dialog: use arena allocator for per-frame
       directory listing (reset each frame, no per-element delete)
 - [ ] `[M]` `[P1]` `[gui]` Query and display schema data in ImGui tree/lists
 - [ ] `[L]` `[P1]` `[gui]` ER diagram node graph via ImNodes: tables as labelled

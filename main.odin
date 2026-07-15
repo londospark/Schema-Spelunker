@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:mem"
 import "core:strings"
 import "core:os"
 import "core:time"
@@ -14,13 +15,17 @@ BUF_LEN :: 1024
 FileDialog :: struct {
 	selected_file: i32,
 	filename_buffer: [BUF_LEN]u8,
-	items_in_folder: [dynamic]cstring
+	items_in_folder: [dynamic]cstring,
+	arena: mem.Dynamic_Arena,
 }
 
 make_file_dialog :: proc() -> FileDialog {
-	return FileDialog {
-		selected_file = -1
-	}
+	fd: FileDialog
+	fd.selected_file = -1
+	mem.dynamic_arena_init(&fd.arena)
+	alloc := mem.dynamic_arena_allocator(&fd.arena)
+	fd.items_in_folder = make([dynamic]cstring, alloc)
+	return fd
 }
 
 main :: proc() {
@@ -44,7 +49,7 @@ make_imgui_app :: proc() {
 	}
 	defer sdl.Quit()
 
-	window := sdl.CreateWindow("Schema Spelunker", 1600, 900, {.OPENGL, .HIGH_PIXEL_DENSITY})
+	window := sdl.CreateWindow("Schema Spelunker", 1600, 900, {.OPENGL, .HIGH_PIXEL_DENSITY, .RESIZABLE})
 	if window == nil {
 		fmt.eprintfln("SDL3 CreateWindow failed: %s", sdl.GetError())
 		return
@@ -69,6 +74,7 @@ make_imgui_app :: proc() {
 	// Init ImGui
 	ig.CreateContext()
 	defer ig.DestroyContext(nil)
+	set_theme()
 
 	io := ig.GetIO()
 	font_filename: cstring = "Roboto.ttf"
@@ -89,8 +95,10 @@ make_imgui_app :: proc() {
 	}
 	defer gl_impl.Shutdown()
 
-	// Get display refresh rate for frame pacing
-	// Pick a multiple closest to 240 FPS (max 4×), then throttle down if needed.
+	FPS_CEILING :: 240.0
+
+	// Pick a multiple of the refresh rate closest to FPS_CEILING (max 4×),
+	// then throttle down if the machine can't keep up.
 	display_id := sdl.GetDisplayForWindow(window)
 	mode := sdl.GetCurrentDisplayMode(display_id)
 	refresh_rate := f64(max(mode.refresh_rate, 60.0))
@@ -99,14 +107,11 @@ make_imgui_app :: proc() {
 	fps_target : f64 = refresh_rate
 	frame_time_target : f64 = 1.0 / refresh_rate
 
-	calc_pacing :: proc "c" (rr: f64, mult: u32) -> (f64, f64) {
-		t := min(rr * f64(mult), 240.0)
-		return t, 1.0 / t
-	}
-
 	{
-		m := clamp(u32(240.0 / refresh_rate), 1, 4)
-		fps_target, frame_time_target = calc_pacing(refresh_rate, m)
+		m := clamp(u32(FPS_CEILING / refresh_rate), 1, 4)
+		t := min(refresh_rate * f64(m), FPS_CEILING)
+		fps_target = t
+		frame_time_target = 1.0 / t
 		multiple = m
 	}
 
@@ -119,8 +124,10 @@ make_imgui_app :: proc() {
 	fps_full := false
 
 	file_dialog := make_file_dialog()
-	append(&file_dialog.items_in_folder, "something.db")
-	append(&file_dialog.items_in_folder, "complex.db")
+	defer {
+		delete(file_dialog.items_in_folder)
+		mem.dynamic_arena_destroy(&file_dialog.arena)
+	}
 
 	// Main loop
 	event: sdl.Event
@@ -155,23 +162,42 @@ make_imgui_app :: proc() {
 			files := os.read_dir(directory_handle, -1, context.temp_allocator) or_continue
 			defer os.file_info_slice_delete(files, context.temp_allocator)
 
-			file_dialog.items_in_folder = {}
+			mem.dynamic_arena_free_all(&file_dialog.arena)
+			alloc := mem.dynamic_arena_allocator(&file_dialog.arena)
+			file_dialog.items_in_folder = make([dynamic]cstring, alloc)
+			append(&file_dialog.items_in_folder, "../")
 			for f in files {
 				name: cstring
 				if f.type == .Directory {
-					name = strings.clone_to_cstring(fmt.tprintf("%v/", f.name), context.allocator)
+					name = strings.clone_to_cstring(fmt.tprintf("%v/", f.name), alloc)
 				} else {
-					name = strings.clone_to_cstring(f.name, context.allocator)
+					name = strings.clone_to_cstring(f.name, alloc)
 				}
 				append(&file_dialog.items_in_folder, name)
 			}
 
+			style := ig.GetStyle()
 			ig.PushItemWidth(ig.GetContentRegionAvail().x)
 			ig.InputText("##filename", cstring(&file_dialog.filename_buffer[0]), BUF_LEN)
-			ig.ListBox("##folder", &file_dialog.selected_file, &file_dialog.items_in_folder[0], i32(len(file_dialog.items_in_folder)))
 			ig.PopItemWidth()
 
+			avail := ig.GetContentRegionAvail()
+			listbox_height := avail.y - ig.GetFrameHeightWithSpacing() - style.ItemSpacing.y
+			if ig.BeginListBox("##folder", ig.Vec2{avail.x, listbox_height}) {
+				for item, i in file_dialog.items_in_folder {
+					is_selected := i32(i) == file_dialog.selected_file
+					if ig.SelectableBoolPtr(item, &is_selected) {
+						file_dialog.selected_file = i32(i)
+					}
+					if is_selected {
+						ig.SetItemDefaultFocus()
+					}
+				}
+				ig.EndListBox()
+			}
+
 			ig.Button("Cancel")
+			ig.SameLine()
 			ig.Button("Open")
 		}
 		ig.End()
@@ -181,18 +207,12 @@ make_imgui_app :: proc() {
 
 		sdl.GL_SwapWindow(window)
 
-		// 4. Frame pace: sleep for most of the remaining time, then busy-wait
-		//    for precision. This lets us hit the target FPS without VSync.
+		// 4. Frame pace: sleep for the remaining time to hit target FPS.
+		// No busy-wait — a fraction of a millisecond early is invisible.
 		elapsed := time.duration_seconds(time.tick_since(t0))
 		if elapsed < frame_time_target {
 			remaining := frame_time_target - elapsed
-			sleep_buffer :: 1.0 / 1000.0  // 1ms
-			if remaining > sleep_buffer {
-				time.sleep(time.Duration(1e9 * (remaining - sleep_buffer)))
-			}
-			for time.duration_seconds(time.tick_since(t0)) < frame_time_target {
-				// busy-wait for precision
-			}
+			time.sleep(time.Duration(1e9 * remaining))
 		}
 
 		// 5. Record actual FPS and throttle down if needed
@@ -207,16 +227,97 @@ make_imgui_app :: proc() {
 				for v in fps_ring { avg += v }
 				avg /= FPS_HISTORY
 
-				if avg < fps_target * 0.8 {
+				THROTTLE_RATIO :: 0.8
+				if avg < fps_target * THROTTLE_RATIO {
 					multiple -= 1
-					fps_target, frame_time_target = calc_pacing(refresh_rate, multiple)
-					fps_full = false  // reset stats after change
+					t := min(refresh_rate * f64(multiple), FPS_CEILING)
+					fps_target = t
+					frame_time_target = 1.0 / t
+					fps_full = false
 				}
 			}
 		}
 
 		t0 = time.tick_now()
 	}
+}
+
+rgba :: proc(r, g, b: u8, a: f32 = 1.0) -> ig.Vec4 {
+	return {f32(r) / 255.0, f32(g) / 255.0, f32(b) / 255.0, a}
+}
+
+set_theme :: proc() {
+	style := ig.GetStyle()
+
+	style.WindowRounding = 4.0
+	style.FrameRounding = 3.0
+	style.PopupRounding = 4.0
+	style.ScrollbarRounding = 3.0
+	style.GrabRounding = 3.0
+	style.TabRounding = 3.0
+	style.ChildRounding = 4.0
+
+	style.WindowBorderSize = 1.0
+	style.FrameBorderSize = 0.0
+	style.PopupBorderSize = 1.0
+	style.ChildBorderSize = 1.0
+	style.TabBorderSize = 1.0
+
+	style.WindowPadding = {10.0, 10.0}
+	style.FramePadding = {8.0, 4.0}
+	style.ItemSpacing = {8.0, 5.0}
+	style.ItemInnerSpacing = {5.0, 5.0}
+	style.IndentSpacing = 18.0
+	style.ScrollbarSize = 12.0
+	style.GrabMinSize = 10.0
+	style.WindowMinSize = {60.0, 60.0}
+
+	style.Colors[ig.Col.Text]              = rgba(205, 214, 244)
+	style.Colors[ig.Col.TextDisabled]      = rgba(127, 132, 156)
+	style.Colors[ig.Col.WindowBg]          = rgba(24,  25,  38)
+	style.Colors[ig.Col.ChildBg]           = rgba(20,  21,  33)
+	style.Colors[ig.Col.PopupBg]           = rgba(31,  33,  48)
+	style.Colors[ig.Col.Border]            = rgba(60,  63,  85)
+	style.Colors[ig.Col.BorderShadow]      = rgba(0,    0,   0, 0)
+	style.Colors[ig.Col.FrameBg]           = rgba(40,  42,  60)
+	style.Colors[ig.Col.FrameBgHovered]    = rgba(54,  56,  78)
+	style.Colors[ig.Col.FrameBgActive]     = rgba(68,  71,  97)
+	style.Colors[ig.Col.TitleBg]           = rgba(20,  21,  33)
+	style.Colors[ig.Col.TitleBgActive]     = rgba(35,  37,  54)
+	style.Colors[ig.Col.TitleBgCollapsed]  = rgba(20,  21,  33)
+	style.Colors[ig.Col.MenuBarBg]         = rgba(31,  33,  48)
+	style.Colors[ig.Col.ScrollbarBg]       = rgba(24,  25,  38)
+	style.Colors[ig.Col.ScrollbarGrab]     = rgba(60,  63,  85)
+	style.Colors[ig.Col.ScrollbarGrabHovered] = rgba(81,  85, 111)
+	style.Colors[ig.Col.ScrollbarGrabActive]  = rgba(104, 108, 138)
+	style.Colors[ig.Col.CheckMark]         = rgba(137, 180, 250)
+	style.Colors[ig.Col.SliderGrab]        = rgba(137, 180, 250)
+	style.Colors[ig.Col.SliderGrabActive]  = rgba(159, 194, 252)
+	style.Colors[ig.Col.Button]            = rgba(45,  47,  66)
+	style.Colors[ig.Col.ButtonHovered]     = rgba(59,  62,  86)
+	style.Colors[ig.Col.ButtonActive]      = rgba(74,  78, 107)
+	style.Colors[ig.Col.Header]            = rgba(45,  47,  66)
+	style.Colors[ig.Col.HeaderHovered]     = rgba(59,  62,  86)
+	style.Colors[ig.Col.HeaderActive]      = rgba(74,  78, 107)
+	style.Colors[ig.Col.Separator]         = rgba(60,  63,  85)
+	style.Colors[ig.Col.SeparatorHovered]  = rgba(137, 180, 250)
+	style.Colors[ig.Col.SeparatorActive]   = rgba(159, 194, 252)
+	style.Colors[ig.Col.ResizeGrip]        = rgba(60,  63,  85)
+	style.Colors[ig.Col.ResizeGripHovered] = rgba(137, 180, 250)
+	style.Colors[ig.Col.ResizeGripActive]  = rgba(159, 194, 252)
+	style.Colors[ig.Col.Tab]               = rgba(31,  33,  48)
+	style.Colors[ig.Col.TabHovered]        = rgba(54,  56,  78)
+	style.Colors[ig.Col.TabSelected]       = rgba(45,  47,  66)
+	style.Colors[ig.Col.TabDimmed]         = rgba(24,  25,  38)
+	style.Colors[ig.Col.TabDimmedSelected] = rgba(35,  37,  54)
+	style.Colors[ig.Col.DockingPreview]    = rgba(137, 180, 250, 0.30)
+	style.Colors[ig.Col.DockingEmptyBg]    = rgba(20,  21,  33)
+	style.Colors[ig.Col.TextLink]          = rgba(137, 180, 250)
+	style.Colors[ig.Col.TextSelectedBg]    = rgba(137, 180, 250, 0.25)
+	style.Colors[ig.Col.DragDropTarget]    = rgba(137, 180, 250, 0.80)
+	style.Colors[ig.Col.DragDropTargetBg]  = rgba(137, 180, 250, 0.15)
+	style.Colors[ig.Col.NavCursor]         = rgba(137, 180, 250)
+	style.Colors[ig.Col.ModalWindowDimBg]  = rgba(0,    0,   0, 0.50)
 }
 
 extract_database_information :: proc(filename: string) -> sqlite.SQLiteError {
