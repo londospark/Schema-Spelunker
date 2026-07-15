@@ -16,6 +16,9 @@ build\
 # --- IDE session files (keep project file, ignore workspace session) ---
 *.sublime-workspace
 
+# --- Editor / UI state ---
+imgui.ini
+
 # --- OS junk ---
 .DS_Store
 Thumbs.db

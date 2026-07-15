@@ -27,6 +27,8 @@ Legend: `[S/M/L]` = size · `[P0/P1/P2]` = priority · `[cat]` = category
 - [x] `[S]` `[P0]` `[gui]` Roboto TTF font loading
 - [ ] `[M]` `[P1]` `[gui]` File dialog: custom ImGui window with file list,
       path navigation, open/cancel
+- [ ] `[S]` `[P1]` `[gui]` File dialog: use arena allocator for per-frame
+      directory listing (reset each frame, no per-element delete)
 - [ ] `[M]` `[P1]` `[gui]` Query and display schema data in ImGui tree/lists
 - [ ] `[L]` `[P1]` `[gui]` ER diagram node graph via ImNodes: tables as labelled
       nodes, FK relationships as edges
@@ -54,6 +56,8 @@ Legend: `[S/M/L]` = size · `[P0/P1/P2]` = priority · `[cat]` = category
 - [x] `[S]` `[P0]` `[build]` Post-processing script for binding regen
 - [ ] `[M]` `[P1]` `[build]` Cross-platform: test the build on Linux and macOS
       (need `setup.sh`)
+- [ ] `[L]` `[P1]` `[build]` Linux support: `setup.sh` for fetching/building
+      deps (SDL3, sqlite3 amalgamation), odin build, font path, run
 - [ ] `[S]` `[P2]` `[build]` Linux: provide `sqlite3.a` and `imgui.a` for
       non-Windows targets
 

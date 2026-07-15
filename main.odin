@@ -10,6 +10,19 @@ import ig "vendor/imgui"
 import sdl_impl "vendor/imgui/backends"
 import gl_impl "vendor/imgui/backends/opengl3"
 
+BUF_LEN :: 1024
+FileDialog :: struct {
+	selected_file: i32,
+	filename_buffer: [BUF_LEN]u8,
+	items_in_folder: [dynamic]cstring
+}
+
+make_file_dialog :: proc() -> FileDialog {
+	return FileDialog {
+		selected_file = -1
+	}
+}
+
 main :: proc() {
 	fmt.println("Hellope! Welcome to the Schema Spelunker")
 
@@ -82,8 +95,8 @@ make_imgui_app :: proc() {
 	mode := sdl.GetCurrentDisplayMode(display_id)
 	refresh_rate := f64(max(mode.refresh_rate, 60.0))
 
-	multiple      : u32 = 1
-	fps_target    : f64 = refresh_rate
+	multiple : u32 = 1
+	fps_target : f64 = refresh_rate
 	frame_time_target : f64 = 1.0 / refresh_rate
 
 	calc_pacing :: proc "c" (rr: f64, mult: u32) -> (f64, f64) {
@@ -97,14 +110,17 @@ make_imgui_app :: proc() {
 		multiple = m
 	}
 
-	BUF_LEN :: 1024
-	buf := [BUF_LEN]u8{}
+
 
 	// Frame pacing throttle: 30-frame ring buffer
 	FPS_HISTORY :: 30
 	fps_ring : [FPS_HISTORY]f64
 	fps_idx  : u32
 	fps_full := false
+
+	file_dialog := make_file_dialog()
+	append(&file_dialog.items_in_folder, "something.db")
+	append(&file_dialog.items_in_folder, "complex.db")
 
 	// Main loop
 	event: sdl.Event
@@ -129,13 +145,36 @@ make_imgui_app :: proc() {
 		ig.NewFrame()
 		ig.DockSpaceOverViewport(viewport = ig.GetMainViewport())
 
-		// — Your ImGui windows go here —
 		ig.SetNextWindowSize(ig.Vec2{300, 500}, .Appearing)
 		if ig.Begin("Open File...") {
-			ig.SetNextItemWidth(ig.GetContentRegionAvail().x)
-			ig.InputText("##filename", cstring(&buf[0]), BUF_LEN)
-			ig.End()
+
+			directory_path := os.get_working_directory(context.temp_allocator) or_continue
+			directory_handle := os.open(directory_path) or_continue
+			defer os.close(directory_handle)
+
+			files := os.read_dir(directory_handle, -1, context.temp_allocator) or_continue
+			defer os.file_info_slice_delete(files, context.temp_allocator)
+
+			file_dialog.items_in_folder = {}
+			for f in files {
+				name: cstring
+				if f.type == .Directory {
+					name = strings.clone_to_cstring(fmt.tprintf("%v/", f.name), context.allocator)
+				} else {
+					name = strings.clone_to_cstring(f.name, context.allocator)
+				}
+				append(&file_dialog.items_in_folder, name)
+			}
+
+			ig.PushItemWidth(ig.GetContentRegionAvail().x)
+			ig.InputText("##filename", cstring(&file_dialog.filename_buffer[0]), BUF_LEN)
+			ig.ListBox("##folder", &file_dialog.selected_file, &file_dialog.items_in_folder[0], i32(len(file_dialog.items_in_folder)))
+			ig.PopItemWidth()
+
+			ig.Button("Cancel")
+			ig.Button("Open")
 		}
+		ig.End()
 
 		ig.Render()
 		gl_impl.RenderDrawData(ig.GetDrawData())
