@@ -3,7 +3,9 @@ something.db
 *.db
 
 # --- Build output ---
+bin
 bin\
+build
 build\
 *.exe
 *.out
