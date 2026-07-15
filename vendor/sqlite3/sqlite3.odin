@@ -6,7 +6,7 @@ import "core:c"
 when ODIN_OS == .Windows {
 	@(private) LIB_PATH :: "sqlite3.lib"
 } else {
-	@(private) LIB_PATH :: "sqlite3_other.a"
+	@(private) LIB_PATH :: "sqlite3.a"
 }
 
 when !#exists(LIB_PATH) {

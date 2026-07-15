@@ -3,7 +3,11 @@ package imgui_impl_sdl3
 // Odin bindings for ImGui's SDL3 platform backend.
 // C++ implementation compiled into ../imgui.lib. Links against vendor:sdl3.
 
-foreign import imguilib "../imgui.lib"
+when ODIN_OS == .Windows {
+	foreign import imguilib "../imgui.lib"
+} else {
+	foreign import imguilib "../imgui.a"
+}
 
 @(default_calling_convention = "c", link_prefix = "ImGui_ImplSDL3_")
 foreign imguilib {
