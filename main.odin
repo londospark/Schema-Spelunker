@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:strings"
 import "core:os"
+import "core:time"
 import sqlite "vendor/sqlite3"
 import sdl "vendor:sdl3"
 import ig "vendor/imgui"
@@ -22,8 +23,8 @@ main :: proc() {
 }
 
 make_imgui_app :: proc() {
+
 	sdl.SetHint("SDL_HINT_IME_SHOW_UI", "1")
-	sdl.SetHint("SDL_HINT_RAW_INPUT_ENABLED", "1")  // WM_INPUT for high-frequency mouse on Windows
 	if !sdl.Init({.VIDEO}) {
 		fmt.eprintfln("SDL3 init failed: %s", sdl.GetError())
 		return
@@ -50,12 +51,17 @@ make_imgui_app :: proc() {
 	defer sdl.GL_DestroyContext(gl_context)
 
 	sdl.GL_MakeCurrent(window, gl_context)
-	sdl.GL_SetSwapInterval(-1)  // Adaptive V-SYNC
-	font_filename: cstring = "Roboto.ttf"
+	sdl.GL_SetSwapInterval(0)  // no VSync — we pace the loop manually
 
 	// Init ImGui
 	ig.CreateContext()
 	defer ig.DestroyContext(nil)
+
+	io := ig.GetIO()
+	font_filename: cstring = "Roboto.ttf"
+
+	ascii_range := [?]ig.Wchar{32, 126, 0}
+	ig.FontAtlas_AddFontFromFileTTF(io.Fonts, font_filename, glyph_ranges = &ascii_range[0])
 
 	// Init backends
 	if !sdl_impl.InitForOpenGL(window, gl_context) {
@@ -70,31 +76,107 @@ make_imgui_app :: proc() {
 	}
 	defer gl_impl.Shutdown()
 
+	// Get display refresh rate for frame pacing
+	// Pick a multiple closest to 240 FPS (max 4×), then throttle down if needed.
+	display_id := sdl.GetDisplayForWindow(window)
+	mode := sdl.GetCurrentDisplayMode(display_id)
+	refresh_rate := f64(max(mode.refresh_rate, 60.0))
+
+	multiple      : u32 = 1
+	fps_target    : f64 = refresh_rate
+	frame_time_target : f64 = 1.0 / refresh_rate
+
+	calc_pacing :: proc "c" (rr: f64, mult: u32) -> (f64, f64) {
+		t := min(rr * f64(mult), 240.0)
+		return t, 1.0 / t
+	}
+
+	{
+		m := clamp(u32(240.0 / refresh_rate), 1, 4)
+		fps_target, frame_time_target = calc_pacing(refresh_rate, m)
+		multiple = m
+	}
+
+	BUF_LEN :: 1024
+	buf := [BUF_LEN]u8{}
+
+	// Frame pacing throttle: 30-frame ring buffer
+	FPS_HISTORY :: 30
+	fps_ring : [FPS_HISTORY]f64
+	fps_idx  : u32
+	fps_full := false
+
 	// Main loop
 	event: sdl.Event
 	running := true
-	io := ig.GetIO()
 	io.ConfigFlags |= {.DockingEnable}
-	ig.FontAtlas_AddFontFromFileTTF(io.Fonts, font_filename)
+	t0 := time.tick_now()
 	for running {
-		_ = sdl.WaitEvent(&event)
-		for {
+		// 1. Drain all pending events
+		for sdl.PollEvent(&event) {
+			if event.type == .QUIT { running = false }
 			sdl_impl.ProcessEvent(&event)
-			if event.type == .QUIT { running = false; break }
-			if !sdl.PollEvent(&event) do break
 		}
 
+		// 2. Inject the absolute latest mouse position before the frame starts
+		mx, my: f32
+		_ = sdl.GetMouseState(&mx, &my)
+		io.MousePos = ig.Vec2{mx, my}
+
+		// 3. Render one frame
 		gl_impl.NewFrame()
 		sdl_impl.NewFrame()
 		ig.NewFrame()
 		ig.DockSpaceOverViewport(viewport = ig.GetMainViewport())
 
 		// — Your ImGui windows go here —
+		ig.SetNextWindowSize(ig.Vec2{300, 500}, .Appearing)
+		if ig.Begin("Open File...") {
+			ig.SetNextItemWidth(ig.GetContentRegionAvail().x)
+			ig.InputText("##filename", cstring(&buf[0]), BUF_LEN)
+			ig.End()
+		}
 
 		ig.Render()
 		gl_impl.RenderDrawData(ig.GetDrawData())
 
 		sdl.GL_SwapWindow(window)
+
+		// 4. Frame pace: sleep for most of the remaining time, then busy-wait
+		//    for precision. This lets us hit the target FPS without VSync.
+		elapsed := time.duration_seconds(time.tick_since(t0))
+		if elapsed < frame_time_target {
+			remaining := frame_time_target - elapsed
+			sleep_buffer :: 1.0 / 1000.0  // 1ms
+			if remaining > sleep_buffer {
+				time.sleep(time.Duration(1e9 * (remaining - sleep_buffer)))
+			}
+			for time.duration_seconds(time.tick_since(t0)) < frame_time_target {
+				// busy-wait for precision
+			}
+		}
+
+		// 5. Record actual FPS and throttle down if needed
+		{
+			actual := 1.0 / max(elapsed, 1e-9)
+			fps_ring[fps_idx] = actual
+			fps_idx = (fps_idx + 1) % FPS_HISTORY
+			if fps_idx == 0 { fps_full = true }
+
+			if fps_full && multiple > 1 {
+				avg := 0.0
+				for v in fps_ring { avg += v }
+				avg /= FPS_HISTORY
+
+				if avg < fps_target * 0.8 {
+					multiple -= 1
+					fps_target, frame_time_target = calc_pacing(refresh_rate, multiple)
+					fps_full = false  // reset stats after change
+				}
+			}
+		}
+
+		t0 = time.tick_now()
 	}
 }
 
