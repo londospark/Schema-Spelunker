@@ -150,10 +150,12 @@ make_imgui_app :: proc() {
 			sdl_impl.ProcessEvent(&event)
 		}
 
+		{
 		// 2. Inject the absolute latest mouse position before the frame starts
 		mx, my: f32
 		_ = sdl.GetMouseState(&mx, &my)
 		io.MousePos = ig.Vec2{mx, my}
+		}
 
 		// 3. Render one frame
 		gl_impl.NewFrame()
@@ -162,58 +164,7 @@ make_imgui_app :: proc() {
 		ig.DockSpaceOverViewport(viewport = ig.GetMainViewport())
 
 		if file_dialog.show {
-			ig.SetNextWindowSize(ig.Vec2{300, 500}, .Appearing)
-			if ig.Begin("Open File...") {
-				mem.dynamic_arena_free_all(&file_dialog.arena)
-				alloc := mem.dynamic_arena_allocator(&file_dialog.arena)
-	
-				directory_path := os.get_working_directory(context.temp_allocator) or_continue
-				directory_handle := os.open(directory_path) or_continue
-				defer os.close(directory_handle)
-
-				file_dialog.path_buffer = {}
-				copy(file_dialog.path_buffer[:], directory_path)
-
-				files := os.read_dir(directory_handle, -1, context.temp_allocator) or_continue
-				defer os.file_info_slice_delete(files, context.temp_allocator)
-	
-				file_dialog.items_in_folder = make([dynamic]cstring, alloc)
-				append(&file_dialog.items_in_folder, "../")
-				for f in files {
-					name: cstring
-					if f.type == .Directory {
-						name = strings.clone_to_cstring(fmt.tprintf("%v/", f.name), alloc)
-					} else {
-						name = strings.clone_to_cstring(f.name, alloc)
-					}
-					append(&file_dialog.items_in_folder, name)
-				}
-	
-				style := ig.GetStyle()
-				ig.PushItemWidth(ig.GetContentRegionAvail().x)
-				ig.InputText("##path", cstring(&file_dialog.path_buffer[0]), BUF_LEN)
-				ig.PopItemWidth()
-	
-				avail := ig.GetContentRegionAvail()
-				listbox_height := avail.y - ig.GetFrameHeightWithSpacing() - style.ItemSpacing.y
-				if ig.BeginListBox("##folder", ig.Vec2{avail.x, listbox_height}) {
-					for item, i in file_dialog.items_in_folder {
-						is_selected := i32(i) == file_dialog.selected_file
-						if ig.SelectableBoolPtr(item, &is_selected) {
-							file_dialog.selected_file = i32(i)
-						}
-						if is_selected {
-							ig.SetItemDefaultFocus()
-						}
-					}
-					ig.EndListBox()
-				}
-	
-				if ig.Button("Cancel") do file_dialog.show = false
-				ig.SameLine()
-				ig.Button("Open")
-			}
-			ig.End()
+			show_file_dialog(&file_dialog) or_continue
 		}
 
 		ig.Render()
@@ -254,6 +205,63 @@ make_imgui_app :: proc() {
 
 		t0 = time.tick_now()
 	}
+}
+
+show_file_dialog :: proc(file_dialog: ^FileDialog) -> os.Error {
+	ig.SetNextWindowSize(ig.Vec2{300, 500}, .Appearing)
+	if ig.Begin("Open File...") {
+		mem.dynamic_arena_free_all(&file_dialog.arena)
+		alloc := mem.dynamic_arena_allocator(&file_dialog.arena)
+	
+		directory_path := os.get_working_directory(context.temp_allocator) or_return
+		directory_handle := os.open(directory_path) or_return
+		defer os.close(directory_handle)
+
+		file_dialog.path_buffer = {}
+		copy(file_dialog.path_buffer[:], directory_path)
+
+		files := os.read_dir(directory_handle, -1, context.temp_allocator) or_return
+		defer os.file_info_slice_delete(files, context.temp_allocator)
+	
+		file_dialog.items_in_folder = make([dynamic]cstring, alloc)
+		append(&file_dialog.items_in_folder, "../")
+		for f in files {
+			name: cstring
+			if f.type == .Directory {
+				name = strings.clone_to_cstring(fmt.tprintf("%v/", f.name), alloc)
+			} else {
+				name = strings.clone_to_cstring(f.name, alloc)
+			}
+			append(&file_dialog.items_in_folder, name)
+		}
+	
+		style := ig.GetStyle()
+		ig.PushItemWidth(ig.GetContentRegionAvail().x)
+		ig.InputText("##path", cstring(&file_dialog.path_buffer[0]), BUF_LEN)
+		ig.PopItemWidth()
+	
+		avail := ig.GetContentRegionAvail()
+		listbox_height := avail.y - ig.GetFrameHeightWithSpacing() - style.ItemSpacing.y
+		if ig.BeginListBox("##folder", ig.Vec2{avail.x, listbox_height}) {
+			for item, i in file_dialog.items_in_folder {
+				is_selected := i32(i) == file_dialog.selected_file
+				if ig.SelectableBoolPtr(item, &is_selected) {
+					file_dialog.selected_file = i32(i)
+				}
+				if is_selected {
+					ig.SetItemDefaultFocus()
+				}
+			}
+			ig.EndListBox()
+		}
+	
+		if ig.Button("Cancel") do file_dialog.show = false
+		ig.SameLine()
+		ig.Button("Open")
+	}
+	ig.End()
+
+	return nil
 }
 
 rgba :: proc(r, g, b: u8, a: f32 = 1.0) -> ig.Vec4 {
