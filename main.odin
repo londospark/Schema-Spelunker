@@ -24,14 +24,15 @@ FileDialog :: struct {
 	arena: mem.Dynamic_Arena,
 }
 
-make_file_dialog :: proc() -> FileDialog {
-	fd: FileDialog
+make_file_dialog :: proc() -> (fd: FileDialog, err: os.Error) {
 	fd.show = true //Show on startup
 	fd.selected_file = -1
 	mem.dynamic_arena_init(&fd.arena)
 	alloc := mem.dynamic_arena_allocator(&fd.arena)
 	fd.items_in_folder = make([dynamic]cstring, alloc)
-	return fd
+	directory_path := os.get_working_directory(context.temp_allocator) or_return
+	copy(fd.path_buffer[:], directory_path)
+	return fd, nil
 }
 
 main :: proc() {
@@ -132,11 +133,13 @@ make_imgui_app :: proc() {
 	fps_idx  : u32
 	fps_full := false
 
-	file_dialog := make_file_dialog()
+	file_dialog, err := make_file_dialog()
 	defer {
 		delete(file_dialog.items_in_folder)
 		mem.dynamic_arena_destroy(&file_dialog.arena)
 	}
+
+	if err != nil do return
 
 	// Main loop
 	event: sdl.Event
@@ -213,12 +216,8 @@ show_file_dialog :: proc(file_dialog: ^FileDialog) -> os.Error {
 		mem.dynamic_arena_free_all(&file_dialog.arena)
 		alloc := mem.dynamic_arena_allocator(&file_dialog.arena)
 	
-		directory_path := os.get_working_directory(context.temp_allocator) or_return
-		directory_handle := os.open(directory_path) or_return
+		directory_handle := os.open(string(file_dialog.path_buffer[:])) or_return
 		defer os.close(directory_handle)
-
-		file_dialog.path_buffer = {}
-		copy(file_dialog.path_buffer[:], directory_path)
 
 		files := os.read_dir(directory_handle, -1, context.temp_allocator) or_return
 		defer os.file_info_slice_delete(files, context.temp_allocator)
@@ -243,10 +242,22 @@ show_file_dialog :: proc(file_dialog: ^FileDialog) -> os.Error {
 		avail := ig.GetContentRegionAvail()
 		listbox_height := avail.y - ig.GetFrameHeightWithSpacing() - style.ItemSpacing.y
 		if ig.BeginListBox("##folder", ig.Vec2{avail.x, listbox_height}) {
-			for item, i in file_dialog.items_in_folder {
+			for f, i in files {
+				name: cstring
+				if f.type == .Directory {
+					name = strings.clone_to_cstring(fmt.tprintf("%v/", f.name), alloc)
+				} else {
+					name = strings.clone_to_cstring(f.name, alloc)
+				}
+
 				is_selected := i32(i) == file_dialog.selected_file
-				if ig.SelectableBoolPtr(item, &is_selected) {
-					file_dialog.selected_file = i32(i)
+				if ig.SelectableBoolPtr(name, &is_selected, {.AllowDoubleClick}) {
+					if ig.IsMouseDoubleClicked(.Left) {
+						file_dialog.path_buffer = {}
+						copy(file_dialog.path_buffer[:], string(name))
+					} else {
+						file_dialog.selected_file = i32(i)
+					}
 				}
 				if is_selected {
 					ig.SetItemDefaultFocus()
