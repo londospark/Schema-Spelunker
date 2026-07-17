@@ -242,19 +242,12 @@ show_file_dialog :: proc(file_dialog: ^FileDialog) -> os.Error {
 		avail := ig.GetContentRegionAvail()
 		listbox_height := avail.y - ig.GetFrameHeightWithSpacing() - style.ItemSpacing.y
 		if ig.BeginListBox("##folder", ig.Vec2{avail.x, listbox_height}) {
-			for f, i in files {
-				name: cstring
-				if f.type == .Directory {
-					name = strings.clone_to_cstring(fmt.tprintf("%v/", f.name), alloc)
-				} else {
-					name = strings.clone_to_cstring(f.name, alloc)
-				}
-
+			for item, i in file_dialog.items_in_folder {
 				is_selected := i32(i) == file_dialog.selected_file
-				if ig.SelectableBoolPtr(name, &is_selected, {.AllowDoubleClick}) {
+				if ig.SelectableBoolPtr(item, &is_selected, {.AllowDoubleClick}) {
 					if ig.IsMouseDoubleClicked(.Left) {
 						file_dialog.path_buffer = {}
-						copy(file_dialog.path_buffer[:], string(name))
+						copy(file_dialog.path_buffer[:], string(item))
 					} else {
 						file_dialog.selected_file = i32(i)
 					}
