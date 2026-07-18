@@ -11,4 +11,19 @@
 			"path": "/home/londo/.local/share/mise/installs/odin/dev-2026-07a"
 		},
 	],
+	"build_systems":
+	[
+		{
+			"name": "Build & Run (Unix)",
+			"shell_cmd": "./build.sh run",
+			"working_dir": "${project_path}",
+			"file_regex": "^(.+)\\((\\d+):(\\d+)\\) (.+): (.+)$",
+		},
+		{
+			"name": "Build & Run (Windows)",
+			"cmd": ["build.bat", "run"],
+			"working_dir": "${project_path}",
+			"file_regex": "^(.+)\\((\\d+):(\\d+)\\) (.+): (.+)$",
+		},
+	],
 }
