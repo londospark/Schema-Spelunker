@@ -17,7 +17,12 @@ if [ "$1" = "release" ]; then
     FLAGS="-o:speed"
 fi
 
-odin build . -out:"$OUT" -linker=mold $FLAGS
+LINKER="mold"
+if [ "$(uname)" = "Darwin" ]; then
+    LINKER="lld"
+fi
+
+odin build . -out:"$OUT" -linker="$LINKER" $FLAGS
 
 if [ "$1" = "run" ]; then
     "$OUT"
