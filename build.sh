@@ -13,8 +13,11 @@ mkdir -p bin
 ./_compile_libs.sh
 
 FLAGS="-vet"
-if [ "$1" = "release" ]; then
+if [ "$1" = "release" ] || [ "$2" = "release" ]; then
     FLAGS="-o:speed"
+fi
+if [ "$1" = "debug" ] || [ "$2" = "debug" ]; then
+    FLAGS="-o:none -debug"
 fi
 
 LINKER="mold"
@@ -24,6 +27,6 @@ fi
 
 odin build . -out:"$OUT" -linker="$LINKER" $FLAGS
 
-if [ "$1" = "run" ]; then
+if [ "$1" = "run" ] || [ "$2" = "run" ]; then
     "$OUT"
 fi

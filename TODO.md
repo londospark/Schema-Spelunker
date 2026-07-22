@@ -82,8 +82,14 @@ Legend: `[S/M/L]` = size · `[P0/P1/P2]` = priority · `[cat]` = category
       deps (SDL3, sqlite3 amalgamation), odin build, font path, run
 - [ ] `[S]` `[P2]` `[build]` Linux: provide `sqlite3.a` and `imgui.a` for
       non-Windows targets
-- [ ] `[S]` `[P2]` `[build]` Document `debug` argument in `build.bat`
+- [x] `[S]` `[P2]` `[build]` Document `debug` argument in `build.bat`
       (AGENTS.md lists `[run|release|clean]` but `debug` exists)
+- [x] `[S]` `[P2]` `[build]` Add `debug` + two-position arg support to `build.sh`
+      to match `build.bat` semantics
+- [ ] `[S]` `[P2]` `[build]` Replace hardcoded two-position arg checks in
+      `build.bat` and `build.sh` with a `shift` loop for arbitrary flag ordering
+- [x] `[S]` `[P2]` `[project]` Update "Current state" section in AGENTS.md
+      (was still saying "empty dockspace")
 
 ## Performance
 

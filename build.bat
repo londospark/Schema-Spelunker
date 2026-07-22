@@ -12,8 +12,11 @@ if errorlevel 1 exit /b 1
 
 set FLAGS=-vet
 if "%~1"=="release" set FLAGS=-o:speed
+if "%~2"=="release" set FLAGS=-o:speed
 if "%~1"=="debug" set FLAGS=-o:none -debug
+if "%~2"=="debug" set FLAGS=-o:none -debug
 
 call odin build . -out:"%OUT%" %FLAGS% || exit /b 1
 
 if "%~1"=="run" "%OUT%"
+if "%~2"=="run" "%OUT%"

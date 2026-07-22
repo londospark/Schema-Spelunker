@@ -52,9 +52,23 @@ The build script auto-detects your VS installation via vswhere.
 ```
 build.bat              # debug build (compiles native libs on first run)
 build.bat run          # debug build + run
-build.bat release      # optimized build
+build.bat release      # optimized build (-o:speed)
+build.bat debug        # debug build with symbols (-o:none -debug)
 build.bat clean        # remove build output
 ```
+
+Flags can be combined: `build.bat debug run`, `build.bat release run`.
+
+**Linux** uses the same interface via `build.sh`:
+
+```
+./build.sh run          # debug build + run
+./build.sh release      # optimized build (-o:speed)
+./build.sh debug        # debug build with symbols (-o:none -debug)
+./build.sh clean        # remove build output
+```
+
+`build.sh debug run` and `build.sh run debug` both work.
 
 The spelunker takes a database path as a CLI argument:
 

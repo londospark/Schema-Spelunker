@@ -17,12 +17,14 @@ SQLite schema browser. SDL3 + Dear ImGui + OpenGL 3.3.
 
 ## Build
 
-**Windows:** `build.bat [run|release|clean]` — compiles vendor libs, then `odin build . -vet`.
+**Windows:** `build.bat [run|release|debug|clean]` — compiles vendor libs, then `odin build . -vet`.
 `build.bat run` builds and launches.
 `build.bat release` adds `-o:speed`.
+`build.bat debug` adds `-o:none -debug`.
 `build.bat clean` removes `bin/` and `build/`.
 
-**Linux:** `./build.sh [run|release|clean]` — same semantics.
+**Linux:** `./build.sh [run|release|debug|clean]` — same semantics.
+`build.sh debug run` works the same as `build.sh run debug`.
 `./seed.sh` — builds and runs `test/seed.odin` to create `seed.db`.
 
 ## Key design decisions
@@ -62,7 +64,9 @@ SQLite schema browser. SDL3 + Dear ImGui + OpenGL 3.3.
 ## Current state
 
 - CLI path: `extract_database_information` prints schema to stdout (legacy, still works).
-- GUI path: SDL3 window + ImGui dockspace, demo window removed, empty dockspace.
+- GUI path: SDL3 window + ImGui dockspace, menu bar with File > Open and Theme > Light/Dark.
+- Theme: Paper & Ink light and dark variants, factored into `set_common_elements` / `set_light_theme` / `set_dark_theme`.
+- File dialog: custom ImGui window with directory navigation, arena allocator per-frame listing, double-click navigation into subdirectories.
 - Font: Roboto.ttf loaded via `FontAtlas_AddFontFromFileTTF`.
 - ImNodes vendored but not wired yet.
 - Schema data model (typed structs + arena) not built yet — `extract_database_information` still couples extraction to printing.
