@@ -22,7 +22,7 @@ FileDialog :: struct {
 	selected_file: i32,
 	path_buffer: [BUF_LEN]u8,
 	items_in_folder: [dynamic]DirectoryItem,
-	arena: mem.Dynamic_Arena,
+	arena: mem.Dynamic_Arena
 }
 
 DirectoryItemType :: enum {
@@ -38,8 +38,47 @@ DirectoryItem :: struct {
 
 SQLITE_MAGIC :: [16]u8{ 0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x20, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x74, 0x20, 0x33, 0x00 }
 
+GlobalColumnIndex :: distinct u32 // All tables will have at least one column therefore we don't need a sentinel value
+GlobalForeignKeyIndex :: distinct u32 // There may be tables with no FK, but we will deal with that with a simple bool
+
+Column :: struct {
+	name: string,
+	type: string,
+	composite_key_index: u32,
+	not_null: bool
+}
+
+Table :: struct {
+	name: string,
+	from_column: GlobalColumnIndex,
+	to_column: GlobalColumnIndex,
+	from_foreign_key: GlobalForeignKeyIndex,
+	to_foreign_key: GlobalForeignKeyIndex,
+	has_foreign_keys: bool
+}
+
+ForeignKey :: struct {
+	from: GlobalColumnIndex,
+	to: GlobalColumnIndex,
+	from_column : string, // Temporary value to test that we have things working before we start doing the whole index setup
+	to_table: string,
+	to_column: string,
+	resolved_to_index: bool
+}
+
+Schema :: struct {
+	database_name: string,
+
+	tables: [dynamic]Table,
+	columns: [dynamic]Column,
+	foreign_keys: [dynamic]ForeignKey,
+
+	arena: mem.Dynamic_Arena,
+	allocator: mem.Allocator
+}
+
 make_file_dialog :: proc() -> (fd: FileDialog, err: os.Error) {
-	fd.show = true //Show on startup
+	fd.show = true // Show on startup
 	fd.selected_file = -1
 	mem.dynamic_arena_init(&fd.arena)
 	alloc := mem.dynamic_arena_allocator(&fd.arena)
@@ -57,7 +96,7 @@ main :: proc() {
 		make_imgui_app()
 	} else {
 		filename := os.args[1]
-		error := extract_database_information(filename)
+		error := print_database_information(filename)
 		fmt.printfln("Return code: %v", error)
 	}
 }
@@ -149,10 +188,7 @@ make_imgui_app :: proc() {
 	fps_full := false
 
 	file_dialog, err := make_file_dialog()
-	defer {
-		delete(file_dialog.items_in_folder)
-		mem.dynamic_arena_destroy(&file_dialog.arena)
-	}
+	defer mem.dynamic_arena_destroy(&file_dialog.arena)
 
 	if err != nil do return
 
@@ -327,6 +363,11 @@ show_file_dialog :: proc(file_dialog: ^FileDialog) -> os.Error {
 					if ig.SelectableBoolPtr(item.name, &is_selected, {.AllowDoubleClick}) {
 						if ig.IsMouseDoubleClicked(.Left) {
 							fmt.printfln("OPEN: %s", item.path)
+							if schema, schema_err := extract_database_information(string(item.path)); schema_err == .OK {
+								defer mem.dynamic_arena_destroy(&schema.arena)
+								print_database_information(string(item.path))
+								fmt.printfln("SCHEMA: %v", schema)
+							}
 						} else {
 							file_dialog.selected_file = i32(i)
 						}
@@ -542,7 +583,26 @@ set_dark_theme :: proc() {
 	style.Colors[ig.Col.ModalWindowDimBg]  = {0.00, 0.00, 0.00, 0.60}
 }
 
-extract_database_information :: proc(filename: string) -> sqlite.SQLiteError {
+init_schema :: proc(schema: ^Schema) {
+	mem.dynamic_arena_init(&schema.arena)
+	schema.allocator = mem.dynamic_arena_allocator(&schema.arena)
+}
+
+print_database_information :: proc(filename: string) -> sqlite.SQLiteError {
+	schema := extract_database_information(filename) or_return
+	defer mem.dynamic_arena_destroy(&schema.arena)
+
+	for table in schema.tables {
+		fmt.printfln("TABLE: %v", table.name)
+
+		for column in schema.columns[table.from_column:table.to_column] {
+			fmt.printfln("- %v", column.name)
+		}
+	}
+	return .OK
+}
+
+extract_database_information :: proc(filename: string) -> (schema: Schema, error: sqlite.SQLiteError) {
 	cfilename := strings.clone_to_cstring(filename, context.temp_allocator)
 	db := sqlite.open(cfilename) or_return
 	defer sqlite.close(db)
@@ -550,28 +610,67 @@ extract_database_information :: proc(filename: string) -> sqlite.SQLiteError {
 	table_stmt := sqlite.prepare(db, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';") or_return
 	defer sqlite.finalize(table_stmt)
 
+	// We have a database, no point initialising the struct before here as we might not have anything in there, so no need to alloc
+
+	init_schema(&schema)
+	defer if error != .OK { mem.dynamic_arena_destroy(&schema.arena) }
+
+	old_allocator := context.allocator
+	context.allocator = schema.allocator
+	schema.database_name = strings.clone(filename) // @Todo: think about if we need to change this at all
+
+	current_column: GlobalColumnIndex = 0
+	current_fk: GlobalForeignKeyIndex = 0
+
 	for sqlite.step(table_stmt) == .ROW {
-		table_name := sqlite.column_text(table_stmt, 0)
-		fmt.printfln("Table name %v", table_name)
+		table: Table
+
+		table.name = sqlite.column_string(table_stmt, 0)
+		table.from_column = current_column
 
 		column_stmt := sqlite.prepare(db, "SELECT * FROM pragma_table_info(?)") or_return
 		defer sqlite.finalize(column_stmt)
 
-		sqlite.bind_text(column_stmt, 1, table_name) or_return
+		sqlite.bind_text(column_stmt, 1, strings.clone_to_cstring(table.name, context.temp_allocator)) or_return
 
 		for sqlite.step(column_stmt) == .ROW {
-			fmt.printfln("- %v", sqlite.column_text(column_stmt, 1))
+			column: Column
+			column.name = sqlite.column_string(column_stmt, 1)
+
+			// @Todo: Finish off the column properties
+
+			append(&schema.columns, column)
+			current_column += 1
 		}
+
+		table.to_column = current_column
 
 		fk_stmt := sqlite.prepare(db, "SELECT * FROM pragma_foreign_key_list(?)") or_return
 		defer sqlite.finalize(fk_stmt)
 
-		sqlite.bind_text(fk_stmt, 1, table_name) or_return
+		sqlite.bind_text(fk_stmt, 1, strings.clone_to_cstring(table.name, context.temp_allocator)) or_return
 
 		for sqlite.step(fk_stmt) == .ROW {
-			fmt.printfln("FK: %v -> %v.%v", sqlite.column_text(fk_stmt, 3), sqlite.column_text(fk_stmt, 2), sqlite.column_text(fk_stmt, 4))
+			if !table.has_foreign_keys {
+				table.has_foreign_keys = true
+				table.from_foreign_key = current_fk
+			}
+
+			fk: ForeignKey
+			fk.from_column = sqlite.column_string(fk_stmt, 3)
+			fk.to_table = sqlite.column_string(fk_stmt, 2)
+			fk.to_column = sqlite.column_string(fk_stmt, 4)
+
+			append(&schema.foreign_keys, fk)
+			current_fk += 1
 		}
+
+		if table.has_foreign_keys do table.to_foreign_key = current_fk
+
+		append(&schema.tables, table)
 	}
 
-	return .OK
+	context.allocator = old_allocator
+
+	return schema, .OK
 }

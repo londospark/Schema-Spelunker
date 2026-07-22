@@ -37,6 +37,10 @@ SQLite schema browser. SDL3 + Dear ImGui + OpenGL 3.3.
 - Adaptive vsync (`SDL_GL_SetSwapInterval(-1)`). Poll-based idle loop (no WaitEvent).
 - Docking via `DockSpaceOverViewport` + `io.ConfigFlags |= {.DockingEnable}`.
 - No animation in tool mode. GPU idle when no input.
+- **Prefer clear naming over comments.** A well-named type or variable should make
+  its purpose obvious without a comment. For example, `GlobalColumnIndex` is better
+  than `ColumnIndex // global index into schema.columns`. When a comment is needed,
+  it should explain *why*, not *what* or *where*.
 
 ## Communication rules
 

@@ -11,8 +11,17 @@ Legend: `[S/M/L]` = size · `[P0/P1/P2]` = priority · `[cat]` = category
 - [ ] `[M]` `[P2]` `[binding]` More PRAGMA introspection: `index_list`, `index_info`,
       `foreign_key_list`, `table_xinfo`
 - [ ] `[S]` `[P2]` `[binding]` Bind `sqlite3_errmsg` for human-readable error messages
-- [ ] `[M]` `[P1]` `[data]` Typed structs for each introspection query so schema data
-      is strongly typed rather than ad-hoc
+- [x] `[S]` `[P1]` `[data]` Arena allocator for schema data lifetime — load once,
+      free on reload (implemented via `Schema.arena` + `Dynamic_Arena`)
+- [ ] `[S]` `[P1]` `[data]` Second pass to resolve FK `to_table`/`to_column` strings
+      to `GlobalColumnIndex` after all tables are loaded — then remove temporary
+      `from_column` string field from `ForeignKey`
+- [ ] `[S]` `[P2]` `[data]` Read column properties (`type`, `not_null`, `pk`) from
+      `pragma_table_info` — currently stubbed with `@Todo`
+- [ ] `[S]` `[P2]` `[data]` Remove `@Todo` on `database_name` — currently cloned
+      from filename, confirm that's the right lifetime
+- [ ] `[S]` `[P2]` `[data]` Avoid duplicate schema load in GUI double-click handler
+      (`print_database_information` re-calls `extract_database_information`)
 
 ## If needed later
 
@@ -25,8 +34,6 @@ spend time on them prematurely.
       reverse FK lookups (currently scan `foreign_keys` array on demand)
 - [~] `[M]` `[P2]` `[prof]` Integrate Tracy profiler for frame timing, zone
       instrumentation, and allocation tracking — can't optimise blind
-- [ ] `[S]` `[P1]` `[data]` Arena allocator for schema data lifetime — load once,
-      free on reload
 - [ ] `[M]` `[P2]` `[data]` Dump schema to a custom snapshot format so exploration
       doesn't need repeated DB hits
 - [ ] `[S]` `[P2]` `[cli]` CLI mode: `schema_spelunker dump something.db` to produce

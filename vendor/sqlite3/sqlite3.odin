@@ -1,6 +1,8 @@
 package sqlite3
 
 import "core:c"
+import "core:mem"
+import "core:strings"
 
 //@Incomplete - Extend this for other operating systems as we get to them.
 when ODIN_OS == .Windows {
@@ -48,6 +50,12 @@ foreign lib {
 	free :: proc(memory: rawptr) ---
 	finalize :: proc(stmt: Statement) -> SQLiteError ---
 	close :: proc(db: Database) -> SQLiteError ---
+}
+
+@(require_results)
+column_string :: proc(stmt: Statement, column: c.int, allocator: mem.Allocator=context.allocator) -> string {
+	cs := column_text(stmt, column)
+	return strings.clone(string(cs), allocator)
 }
 
 @(require_results)
