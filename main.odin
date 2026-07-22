@@ -18,6 +18,7 @@ Window :: struct {
 BUF_LEN :: 1024
 FileDialog :: struct {
 	using window: Window,
+	dirty: bool,
 	selected_file: i32,
 	path_buffer: [BUF_LEN]u8,
 	items_in_folder: [dynamic]DirectoryItem,
@@ -32,6 +33,7 @@ make_file_dialog :: proc() -> (fd: FileDialog, err: os.Error) {
 	fd.items_in_folder = make([dynamic]DirectoryItem, alloc)
 	directory_path := os.get_working_directory(context.temp_allocator) or_return
 	copy(fd.path_buffer[:], directory_path)
+	fd.dirty = true
 	return fd, nil
 }
 
@@ -242,54 +244,56 @@ show_file_dialog :: proc(file_dialog: ^FileDialog) -> os.Error {
 	if ig.Begin("Open File...") {
 		defer ig.End()
 
-		// @Todo: Let's only do this if we have changed directory.
-		mem.dynamic_arena_free_all(&file_dialog.arena)
-		alloc := mem.dynamic_arena_allocator(&file_dialog.arena)
-	
-		directory_handle, error := os.open(string(file_dialog.path_buffer[:]))
-		defer os.close(directory_handle)
+		if file_dialog.dirty {
+			mem.dynamic_arena_free_all(&file_dialog.arena)
+			alloc := mem.dynamic_arena_allocator(&file_dialog.arena)
+		
+			directory_handle, error := os.open(string(file_dialog.path_buffer[:]))
+			defer os.close(directory_handle)
 
-		file_dialog.items_in_folder = make([dynamic]DirectoryItem, alloc)
+			file_dialog.items_in_folder = make([dynamic]DirectoryItem, alloc)
 
-		if error == os.ERROR_NONE {
+			if error == os.ERROR_NONE {
 
-			files := os.read_dir(directory_handle, -1, context.temp_allocator) or_return
-			defer os.file_info_slice_delete(files, context.temp_allocator)
+				files := os.read_dir(directory_handle, -1, context.temp_allocator) or_return
+				defer os.file_info_slice_delete(files, context.temp_allocator)
 
-			parent_path, path_alloc_error := os.clean_path(fmt.aprintf("%s%r..", cstring(&file_dialog.path_buffer[0]), os.Path_Separator, allocator=alloc), alloc)
-			if path_alloc_error == .None {
-				append(&file_dialog.items_in_folder, DirectoryItem{
-					name = "../",
-					path = strings.clone_to_cstring(parent_path, alloc),
-					type = .Directory
-				})
-			}
-
-			for f in files {
-				item: DirectoryItem
-				item.name = strings.clone_to_cstring(f.name, alloc)
-				path := fmt.aprintf("%s%r%s", cstring(&file_dialog.path_buffer[0]), os.Path_Separator, item.name, allocator=alloc)
-				cleaned, err := os.clean_path(path, alloc)
-				
-				if err == .None {
-					item.path = strings.clone_to_cstring(cleaned, alloc)
-				} else {
-					item.path = strings.clone_to_cstring(path, alloc)
+				parent_path, path_alloc_error := os.clean_path(fmt.aprintf("%s%r..", cstring(&file_dialog.path_buffer[0]), os.Path_Separator, allocator=alloc), alloc)
+				if path_alloc_error == .None {
+					append(&file_dialog.items_in_folder, DirectoryItem{
+						name = "../",
+						path = strings.clone_to_cstring(parent_path, alloc),
+						type = .Directory
+					})
 				}
 
-				if f.type == .Directory {
-					item.type = .Directory
-				} else {
-					item.type = .File
+				for f in files {
+					item: DirectoryItem
+					item.name = strings.clone_to_cstring(f.name, alloc)
+					path := fmt.aprintf("%s%r%s", cstring(&file_dialog.path_buffer[0]), os.Path_Separator, item.name, allocator=alloc)
+					cleaned, err := os.clean_path(path, alloc)
+					
+					if err == .None {
+						item.path = strings.clone_to_cstring(cleaned, alloc)
+					} else {
+						item.path = strings.clone_to_cstring(path, alloc)
+					}
+
+					if f.type == .Directory {
+						item.type = .Directory
+					} else {
+						item.type = .File
+					}
+					append(&file_dialog.items_in_folder, item)
 				}
-				append(&file_dialog.items_in_folder, item)
 			}
+			file_dialog.dirty = false
 		}
 
 	
 		style := ig.GetStyle()
 		ig.PushItemWidth(ig.GetContentRegionAvail().x)
-		ig.InputText("##path", cstring(&file_dialog.path_buffer[0]), BUF_LEN)
+		if ig.InputText("##path", cstring(&file_dialog.path_buffer[0]), BUF_LEN) do file_dialog.dirty = true
 		ig.PopItemWidth()
 	
 		avail := ig.GetContentRegionAvail()
@@ -313,6 +317,7 @@ show_file_dialog :: proc(file_dialog: ^FileDialog) -> os.Error {
 				case .Directory:
 					if ig.SelectableBoolPtr(fmt.ctprint("[DIR]", item.name), &is_selected, {.AllowDoubleClick}) {
 						if ig.IsMouseDoubleClicked(.Left) {
+							file_dialog.dirty = true
 							file_dialog.path_buffer = {}
 							copy(file_dialog.path_buffer[:], string(item.path))
 						} else {
