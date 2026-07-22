@@ -275,75 +275,103 @@ rgba :: proc(r, g, b: u8, a: f32 = 1.0) -> ig.Vec4 {
 set_theme :: proc() {
 	style := ig.GetStyle()
 
-	style.WindowRounding = 4.0
-	style.FrameRounding = 3.0
-	style.PopupRounding = 4.0
-	style.ScrollbarRounding = 3.0
-	style.GrabRounding = 3.0
-	style.TabRounding = 3.0
-	style.ChildRounding = 4.0
+	// --- 1. Sizing & Spacing ---
+	style.WindowPadding = {12.0, 12.0}
+	style.FramePadding = {6.0, 4.0}
+	style.CellPadding = {6.0, 4.0}
+	style.ItemSpacing = {8.0, 6.0}
+	style.ItemInnerSpacing = {6.0, 4.0}
+	style.ScrollbarSize = 14.0
+	style.GrabMinSize = 12.0
+
+	// --- 2. Borders & Rounding ---
+	style.WindowRounding = 2.0
+	style.ChildRounding = 2.0
+	style.FrameRounding = 2.0
+	style.PopupRounding = 2.0
+	style.ScrollbarRounding = 12.0
+	style.GrabRounding = 2.0
+	style.TabRounding = 2.0
 
 	style.WindowBorderSize = 1.0
-	style.FrameBorderSize = 0.0
-	style.PopupBorderSize = 1.0
 	style.ChildBorderSize = 1.0
+	style.PopupBorderSize = 1.0
+	style.FrameBorderSize = 1.0
 	style.TabBorderSize = 1.0
 
-	style.WindowPadding = {10.0, 10.0}
-	style.FramePadding = {8.0, 4.0}
-	style.ItemSpacing = {8.0, 5.0}
-	style.ItemInnerSpacing = {5.0, 5.0}
-	style.IndentSpacing = 18.0
-	style.ScrollbarSize = 12.0
-	style.GrabMinSize = 10.0
-	style.WindowMinSize = {60.0, 60.0}
+	// --- 3. Color Palette: Paper & Ink ---
 
-	style.Colors[ig.Col.Text]              = rgba(205, 214, 244)
-	style.Colors[ig.Col.TextDisabled]      = rgba(127, 132, 156)
-	style.Colors[ig.Col.WindowBg]          = rgba(24,  25,  38)
-	style.Colors[ig.Col.ChildBg]           = rgba(20,  21,  33)
-	style.Colors[ig.Col.PopupBg]           = rgba(31,  33,  48)
-	style.Colors[ig.Col.Border]            = rgba(60,  63,  85)
-	style.Colors[ig.Col.BorderShadow]      = rgba(0,    0,   0, 0)
-	style.Colors[ig.Col.FrameBg]           = rgba(40,  42,  60)
-	style.Colors[ig.Col.FrameBgHovered]    = rgba(54,  56,  78)
-	style.Colors[ig.Col.FrameBgActive]     = rgba(68,  71,  97)
-	style.Colors[ig.Col.TitleBg]           = rgba(20,  21,  33)
-	style.Colors[ig.Col.TitleBgActive]     = rgba(35,  37,  54)
-	style.Colors[ig.Col.TitleBgCollapsed]  = rgba(20,  21,  33)
-	style.Colors[ig.Col.MenuBarBg]         = rgba(31,  33,  48)
-	style.Colors[ig.Col.ScrollbarBg]       = rgba(24,  25,  38)
-	style.Colors[ig.Col.ScrollbarGrab]     = rgba(60,  63,  85)
-	style.Colors[ig.Col.ScrollbarGrabHovered] = rgba(81,  85, 111)
-	style.Colors[ig.Col.ScrollbarGrabActive]  = rgba(104, 108, 138)
-	style.Colors[ig.Col.CheckMark]         = rgba(137, 180, 250)
-	style.Colors[ig.Col.SliderGrab]        = rgba(137, 180, 250)
-	style.Colors[ig.Col.SliderGrabActive]  = rgba(159, 194, 252)
-	style.Colors[ig.Col.Button]            = rgba(45,  47,  66)
-	style.Colors[ig.Col.ButtonHovered]     = rgba(59,  62,  86)
-	style.Colors[ig.Col.ButtonActive]      = rgba(74,  78, 107)
-	style.Colors[ig.Col.Header]            = rgba(45,  47,  66)
-	style.Colors[ig.Col.HeaderHovered]     = rgba(59,  62,  86)
-	style.Colors[ig.Col.HeaderActive]      = rgba(74,  78, 107)
-	style.Colors[ig.Col.Separator]         = rgba(60,  63,  85)
-	style.Colors[ig.Col.SeparatorHovered]  = rgba(137, 180, 250)
-	style.Colors[ig.Col.SeparatorActive]   = rgba(159, 194, 252)
-	style.Colors[ig.Col.ResizeGrip]        = rgba(60,  63,  85)
-	style.Colors[ig.Col.ResizeGripHovered] = rgba(137, 180, 250)
-	style.Colors[ig.Col.ResizeGripActive]  = rgba(159, 194, 252)
-	style.Colors[ig.Col.Tab]               = rgba(31,  33,  48)
-	style.Colors[ig.Col.TabHovered]        = rgba(54,  56,  78)
-	style.Colors[ig.Col.TabSelected]       = rgba(45,  47,  66)
-	style.Colors[ig.Col.TabDimmed]         = rgba(24,  25,  38)
-	style.Colors[ig.Col.TabDimmedSelected] = rgba(35,  37,  54)
-	style.Colors[ig.Col.DockingPreview]    = rgba(137, 180, 250, 0.30)
-	style.Colors[ig.Col.DockingEmptyBg]    = rgba(20,  21,  33)
-	style.Colors[ig.Col.TextLink]          = rgba(137, 180, 250)
-	style.Colors[ig.Col.TextSelectedBg]    = rgba(137, 180, 250, 0.25)
-	style.Colors[ig.Col.DragDropTarget]    = rgba(137, 180, 250, 0.80)
-	style.Colors[ig.Col.DragDropTargetBg]  = rgba(137, 180, 250, 0.15)
-	style.Colors[ig.Col.NavCursor]         = rgba(137, 180, 250)
-	style.Colors[ig.Col.ModalWindowDimBg]  = rgba(0,    0,   0, 0.50)
+	// Main Text & Background
+	style.Colors[ig.Col.Text]              = {0.12, 0.12, 0.12, 1.00} // Deep Carbon Ink
+	style.Colors[ig.Col.TextDisabled]      = {0.55, 0.55, 0.55, 1.00}
+	style.Colors[ig.Col.WindowBg]          = {0.96, 0.96, 0.94, 1.00} // Warm Paper
+	style.Colors[ig.Col.ChildBg]           = {0.00, 0.00, 0.00, 0.03}
+	style.Colors[ig.Col.PopupBg]           = {1.00, 1.00, 1.00, 1.00} // Clean White
+
+	// Borders & Separators
+	style.Colors[ig.Col.Border]            = {0.75, 0.75, 0.72, 1.00}
+	style.Colors[ig.Col.BorderShadow]      = {0.00, 0.00, 0.00, 0.00}
+	style.Colors[ig.Col.Separator]         = {0.80, 0.80, 0.78, 1.00}
+	style.Colors[ig.Col.SeparatorHovered]  = {0.17, 0.34, 0.59, 0.78}
+	style.Colors[ig.Col.SeparatorActive]   = {0.17, 0.34, 0.59, 1.00}
+
+	// Frames (Inputs, Checkboxes, etc)
+	style.Colors[ig.Col.FrameBg]           = {1.00, 1.00, 1.00, 1.00}
+	style.Colors[ig.Col.FrameBgHovered]    = {0.90, 0.92, 0.95, 1.00}
+	style.Colors[ig.Col.FrameBgActive]     = {0.85, 0.88, 0.92, 1.00}
+
+	// Titles & Menus
+	style.Colors[ig.Col.TitleBg]           = {0.92, 0.92, 0.90, 1.00}
+	style.Colors[ig.Col.TitleBgActive]     = {0.88, 0.88, 0.86, 1.00}
+	style.Colors[ig.Col.TitleBgCollapsed]  = {0.92, 0.92, 0.90, 0.75}
+	style.Colors[ig.Col.MenuBarBg]         = {0.92, 0.92, 0.90, 1.00}
+
+	// Scrollbars
+	style.Colors[ig.Col.ScrollbarBg]       = {0.96, 0.96, 0.94, 1.00}
+	style.Colors[ig.Col.ScrollbarGrab]     = {0.80, 0.80, 0.78, 1.00}
+	style.Colors[ig.Col.ScrollbarGrabHovered] = {0.70, 0.70, 0.68, 1.00}
+	style.Colors[ig.Col.ScrollbarGrabActive]  = {0.60, 0.60, 0.58, 1.00}
+
+	// Interactables (Blueprint Blue)
+	style.Colors[ig.Col.CheckMark]         = {0.17, 0.34, 0.59, 1.00}
+	style.Colors[ig.Col.SliderGrab]        = {0.17, 0.34, 0.59, 0.70}
+	style.Colors[ig.Col.SliderGrabActive]  = {0.17, 0.34, 0.59, 1.00}
+	style.Colors[ig.Col.Button]            = {0.17, 0.34, 0.59, 0.08}
+	style.Colors[ig.Col.ButtonHovered]     = {0.17, 0.34, 0.59, 0.20}
+	style.Colors[ig.Col.ButtonActive]      = {0.17, 0.34, 0.59, 0.35}
+
+	// Header (Selection in lists/trees)
+	style.Colors[ig.Col.Header]            = {0.17, 0.34, 0.59, 0.12}
+	style.Colors[ig.Col.HeaderHovered]     = {0.17, 0.34, 0.59, 0.25}
+	style.Colors[ig.Col.HeaderActive]      = {0.17, 0.34, 0.59, 0.40}
+
+	// Tables
+	style.Colors[ig.Col.TableHeaderBg]     = {0.90, 0.90, 0.88, 1.00}
+	style.Colors[ig.Col.TableBorderStrong] = {0.75, 0.75, 0.72, 1.00}
+	style.Colors[ig.Col.TableBorderLight]  = {0.85, 0.85, 0.82, 1.00}
+	style.Colors[ig.Col.TableRowBg]        = {0.00, 0.00, 0.00, 0.00}
+	style.Colors[ig.Col.TableRowBgAlt]     = {0.00, 0.00, 0.00, 0.03}
+
+	// Tabs
+	style.Colors[ig.Col.Tab]               = {0.92, 0.92, 0.90, 1.00}
+	style.Colors[ig.Col.TabHovered]        = {1.00, 1.00, 1.00, 1.00}
+	style.Colors[ig.Col.TabSelected]       = {1.00, 1.00, 1.00, 1.00}
+	style.Colors[ig.Col.TabDimmed]         = {0.92, 0.92, 0.90, 1.00}
+	style.Colors[ig.Col.TabDimmedSelected] = {0.96, 0.96, 0.94, 1.00}
+
+	// Misc
+	style.Colors[ig.Col.PlotLines]         = {0.17, 0.34, 0.59, 1.00}
+	style.Colors[ig.Col.PlotHistogram]     = {0.17, 0.34, 0.59, 1.00}
+	style.Colors[ig.Col.TextSelectedBg]    = {0.17, 0.34, 0.59, 0.25}
+	style.Colors[ig.Col.DragDropTarget]    = {0.17, 0.34, 0.59, 0.90}
+	style.Colors[ig.Col.NavCursor]         = {0.17, 0.34, 0.59, 1.00}
+
+	// Docking
+	style.Colors[ig.Col.DockingPreview]    = {0.17, 0.34, 0.59, 0.40}
+	style.Colors[ig.Col.DockingEmptyBg]    = {0.96, 0.96, 0.94, 1.00}
+
+	// Remaining cols from original code that aren't in the C++ snippet but good to set
+	style.Colors[ig.Col.ModalWindowDimBg]  = {0.00, 0.00, 0.00, 0.50}
 }
 
 extract_database_information :: proc(filename: string) -> sqlite.SQLiteError {
