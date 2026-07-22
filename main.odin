@@ -15,7 +15,7 @@ Window :: struct {
 	show: bool
 }
 
-BUF_LEN :: 1024
+BUF_LEN :: 4096
 FileDialog :: struct {
 	using window: Window,
 	dirty: bool,
@@ -24,6 +24,19 @@ FileDialog :: struct {
 	items_in_folder: [dynamic]DirectoryItem,
 	arena: mem.Dynamic_Arena,
 }
+
+DirectoryItemType :: enum {
+	Directory,
+	File
+}
+
+DirectoryItem :: struct {
+	name: cstring,
+	path: cstring,
+	type: DirectoryItemType
+}
+
+SQLITE_MAGIC :: [16]u8{ 0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x20, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x74, 0x20, 0x33, 0x00 }
 
 make_file_dialog :: proc() -> (fd: FileDialog, err: os.Error) {
 	fd.show = true //Show on startup
@@ -228,15 +241,16 @@ make_imgui_app :: proc() {
 	}
 }
 
-DirectoryItemType :: enum {
-	Directory,
-	File
-}
+is_sqlite_database :: proc(path: string) -> bool {
+    handle, err := os.open(path)
+    if err != os.ERROR_NONE do return false
+    defer os.close(handle)
 
-DirectoryItem :: struct {
-	name: cstring,
-	path: cstring,
-	type: DirectoryItemType
+    buf: [16]u8
+    bytes_read, read_err := os.read(handle, buf[:])
+    if read_err != os.ERROR_NONE || bytes_read < 16 do return false
+
+    return buf == SQLITE_MAGIC
 }
 
 show_file_dialog :: proc(file_dialog: ^FileDialog) -> os.Error {
@@ -284,7 +298,10 @@ show_file_dialog :: proc(file_dialog: ^FileDialog) -> os.Error {
 					} else {
 						item.type = .File
 					}
-					append(&file_dialog.items_in_folder, item)
+
+					if item.type == .Directory || is_sqlite_database(string(item.path)) {
+						append(&file_dialog.items_in_folder, item)
+					}
 				}
 			}
 			file_dialog.dirty = false
