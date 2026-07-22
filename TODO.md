@@ -84,10 +84,11 @@ spend time on them prematurely.
 - [x] `[S]` `[P0]` `[build]` Vendor OpenGL 3.3 core bindings
 - [x] `[S]` `[P0]` `[build]` Fix foreign lib link-prefix split in imgui.odin
 - [x] `[S]` `[P0]` `[build]` Post-processing script for binding regen
-- [ ] `[M]` `[P1]` `[build]` Cross-platform: test the build on Linux and macOS
-      (need `setup.sh`)
-- [ ] `[L]` `[P1]` `[build]` Linux support: `setup.sh` for fetching/building
-      deps (SDL3, sqlite3 amalgamation), odin build, font path, run
+- [x] `[M]` `[P1]` `[build]` Cross-platform: test the build on Linux and macOS
+      (confirmed working on macOS ARM and Linux x64 — ImGui + SQLite)
+- [x] `[L]` `[P1]` `[build]` Linux support: `setup.sh` for fetching/building
+      deps — not needed, existing `_compile_libs.sh` + `build.sh` works on
+      Linux x64 and macOS ARM out of the box
 - [ ] `[S]` `[P2]` `[build]` Linux: provide `sqlite3.a` and `imgui.a` for
       non-Windows targets
 - [x] `[S]` `[P2]` `[build]` Document `debug` argument in `build.bat`
@@ -113,6 +114,8 @@ spend time on them prematurely.
 
 - [ ] `[S]` `[P2]` `[gui]` Add theme state enum to track current theme
       (currently not tracked, redundant `set_common_elements` calls on switch)
-- [ ] `[S]` `[P2]` `[project]` Update AGENTS.md "Current state" section —
-      still says "empty dockspace" and "demo window removed"
-- [ ] `[S]` `[P3]` `[gui]` Bump `BUF_LEN` from 1024 to 4096 for long Windows paths
+- [x] `[S]` `[P2]` `[project]` Update AGENTS.md "Current state" section —
+      (was still saying "empty dockspace" and "demo window removed")
+- [x] `[S]` `[P3]` `[gui]` Bump `BUF_LEN` from 1024 to 4096 for long Windows paths
+- [ ] `[S]` `[P2]` `[refactor]` Extract `rebuild_directory_listing` and
+      `render_file_dialog` from `show_file_dialog` to reduce nesting depth
