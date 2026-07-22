@@ -21,6 +21,10 @@ spend time on them prematurely.
 
 - [~] `[S]` `[P3]` `[data]` Consider string interning (esp. column types) if memory
       usage ever becomes a concern — store `string` directly for now
+- [~] `[S]` `[P3]` `[data]` Store `referenced_by` slice on `Table` for O(1)
+      reverse FK lookups (currently scan `foreign_keys` array on demand)
+- [~] `[M]` `[P2]` `[prof]` Integrate Tracy profiler for frame timing, zone
+      instrumentation, and allocation tracking — can't optimise blind
 - [ ] `[S]` `[P1]` `[data]` Arena allocator for schema data lifetime — load once,
       free on reload
 - [ ] `[M]` `[P2]` `[data]` Dump schema to a custom snapshot format so exploration
