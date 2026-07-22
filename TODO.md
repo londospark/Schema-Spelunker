@@ -25,22 +25,30 @@ Legend: `[S/M/L]` = size · `[P0/P1/P2]` = priority · `[cat]` = category
 - [x] `[M]` `[P0]` `[gui]` SDL3 + ImGui + OpenGL 3.3 application loop
 - [x] `[S]` `[P0]` `[gui]` Dockspace via `DockSpaceOverViewport`
 - [x] `[S]` `[P0]` `[gui]` Roboto TTF font loading
+- [x] `[S]` `[P1]` `[gui]` Menu bar with File > Open and Theme > Light/Dark switching
 - [ ] `[M]` `[P1]` `[gui]` File dialog: custom ImGui window with file list,
       path navigation, open/cancel
   - [x] `[S]` `[P1]` Cancel button wired (closes or resets)
   - [ ] `[S]` `[P1]` Open button — open selected file (stub exists, does nothing)
-  - [~] `[S]` `[P1]` Double-click on file to confirm / on dir to navigate in
-        (detection wired via AllowDoubleClick + IsMouseDoubleClicked, but path_buffer
-        zeroed each frame breaks os.open on next frame; navigation action not implemented)
-  - [ ] `[S]` `[P1]` Directory navigation (up via "../" entry, into subdirs)
+  - [x] `[S]` `[P1]` Double-click detection wired via `AllowDoubleClick` +
+        `IsMouseDoubleClicked`
+  - [~] `[S]` `[P1]` Double-click navigation into subdirectories
+        (path_buffer set on click, but takes two frames to take effect since
+        `os.open` already ran this frame — need dirty flag or deferred reopen)
   - [ ] `[S]` `[P1]` Keyboard shortcuts (Enter to confirm, Esc to cancel)
-  - [~] `[S]` `[P2]` Path bar showing current directory
-        (InputText present but path_buffer zeroed each frame before display — broken)
+  - [x] `[S]` `[P2]` Path bar showing current directory (InputText, works now
+        that buffer isn't zeroed every frame)
   - [ ] `[S]` `[P2]` File type filter (`.db`, `.sqlite`, `*`)
-  - [ ] `[S]` `[P1]` Fix stability bug: `or_continue` on `show_file_dialog` error
-        skips `ig.Render()`, triggering ImGui frame assertion next iteration
-  - [ ] `[S]` `[P1]` Fix path buffer lifecycle: don't zero `path_buffer` before
-        `os.open` on next frame; maintain current directory across frames
+  - [x] `[S]` `[P1]` Fix stability bug: `or_continue` on `show_file_dialog` error
+        skips `ig.Render()` — fixed with `defer ig.Render()` block
+  - [x] `[S]` `[P1]` Fix path buffer lifecycle: don't zero `path_buffer` every
+        frame before `os.open` — no longer zeroed on every frame
+  - [ ] `[S]` `[P1]` File dialog: directory re-read every frame even when
+        unchanged — add `dirty` flag to `FileDialog`, only rebuild listing
+        on navigation
+  - [ ] `[S]` `[P2]` File dialog: sort directories before files in the list
+  - [ ] `[S]` `[P2]` File dialog: `os.open` error silently swallowed when
+        directory can't be opened — show error message or return error
 - [x] `[S]` `[P1]` `[gui]` File dialog: use arena allocator for per-frame
       directory listing (reset each frame, no per-element delete)
 - [ ] `[M]` `[P1]` `[gui]` Query and display schema data in ImGui tree/lists
@@ -74,6 +82,8 @@ Legend: `[S/M/L]` = size · `[P0/P1/P2]` = priority · `[cat]` = category
       deps (SDL3, sqlite3 amalgamation), odin build, font path, run
 - [ ] `[S]` `[P2]` `[build]` Linux: provide `sqlite3.a` and `imgui.a` for
       non-Windows targets
+- [ ] `[S]` `[P2]` `[build]` Document `debug` argument in `build.bat`
+      (AGENTS.md lists `[run|release|clean]` but `debug` exists)
 
 ## Performance
 
@@ -83,3 +93,12 @@ Legend: `[S/M/L]` = size · `[P0/P1/P2]` = priority · `[cat]` = category
       using `core:time` to measure and compare debug vs release performance
 - [ ] `[S]` `[P2]` `[perf]` Establish baseline numbers and track regressions
       across changes
+
+## Tech debt / polish
+
+
+- [ ] `[S]` `[P2]` `[gui]` Add theme state enum to track current theme
+      (currently not tracked, redundant `set_common_elements` calls on switch)
+- [ ] `[S]` `[P2]` `[project]` Update AGENTS.md "Current state" section —
+      still says "empty dockspace" and "demo window removed"
+- [ ] `[S]` `[P3]` `[gui]` Bump `BUF_LEN` from 1024 to 4096 for long Windows paths

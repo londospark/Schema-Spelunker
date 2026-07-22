@@ -20,7 +20,7 @@ FileDialog :: struct {
 	using window: Window,
 	selected_file: i32,
 	path_buffer: [BUF_LEN]u8,
-	items_in_folder: [dynamic]cstring,
+	items_in_folder: [dynamic]DirectoryItem,
 	arena: mem.Dynamic_Arena,
 }
 
@@ -29,7 +29,7 @@ make_file_dialog :: proc() -> (fd: FileDialog, err: os.Error) {
 	fd.selected_file = -1
 	mem.dynamic_arena_init(&fd.arena)
 	alloc := mem.dynamic_arena_allocator(&fd.arena)
-	fd.items_in_folder = make([dynamic]cstring, alloc)
+	fd.items_in_folder = make([dynamic]DirectoryItem, alloc)
 	directory_path := os.get_working_directory(context.temp_allocator) or_return
 	copy(fd.path_buffer[:], directory_path)
 	return fd, nil
@@ -84,7 +84,7 @@ make_imgui_app :: proc() {
 	// Init ImGui
 	ig.CreateContext()
 	defer ig.DestroyContext(nil)
-	set_theme()
+	set_light_theme()
 
 	io := ig.GetIO()
 	font_filename: cstring = "Roboto.ttf"
@@ -166,11 +166,27 @@ make_imgui_app :: proc() {
 		ig.NewFrame()
 		ig.DockSpaceOverViewport(viewport = ig.GetMainViewport())
 
-		if file_dialog.show {
-			show_file_dialog(&file_dialog) or_continue
+
+		{
+			defer ig.Render()
+			if file_dialog.show {
+				show_file_dialog(&file_dialog) or_continue
+			}
+
+			if ig.BeginMainMenuBar() {
+				if ig.BeginMenu("File") {
+					if ig.MenuItem("Open...") do file_dialog.show = true
+					ig.EndMenu()
+				}
+				if ig.BeginMenu("Theme") {
+					if ig.MenuItem("Light") do set_light_theme()
+					if ig.MenuItem("Dark") do set_dark_theme()
+					ig.EndMenu()
+				}
+				ig.EndMainMenuBar()
+			}
 		}
 
-		ig.Render()
 		gl_impl.RenderDrawData(ig.GetDrawData())
 
 		sdl.GL_SwapWindow(window)
@@ -210,29 +226,66 @@ make_imgui_app :: proc() {
 	}
 }
 
+DirectoryItemType :: enum {
+	Directory,
+	File
+}
+
+DirectoryItem :: struct {
+	name: cstring,
+	path: cstring,
+	type: DirectoryItemType
+}
+
 show_file_dialog :: proc(file_dialog: ^FileDialog) -> os.Error {
 	ig.SetNextWindowSize(ig.Vec2{300, 500}, .Appearing)
 	if ig.Begin("Open File...") {
+		defer ig.End()
+
+		// @Todo: Let's only do this if we have changed directory.
 		mem.dynamic_arena_free_all(&file_dialog.arena)
 		alloc := mem.dynamic_arena_allocator(&file_dialog.arena)
 	
-		directory_handle := os.open(string(file_dialog.path_buffer[:])) or_return
+		directory_handle, error := os.open(string(file_dialog.path_buffer[:]))
 		defer os.close(directory_handle)
 
-		files := os.read_dir(directory_handle, -1, context.temp_allocator) or_return
-		defer os.file_info_slice_delete(files, context.temp_allocator)
-	
-		file_dialog.items_in_folder = make([dynamic]cstring, alloc)
-		append(&file_dialog.items_in_folder, "../")
-		for f in files {
-			name: cstring
-			if f.type == .Directory {
-				name = strings.clone_to_cstring(fmt.tprintf("%v/", f.name), alloc)
-			} else {
-				name = strings.clone_to_cstring(f.name, alloc)
+		file_dialog.items_in_folder = make([dynamic]DirectoryItem, alloc)
+
+		if error == os.ERROR_NONE {
+
+			files := os.read_dir(directory_handle, -1, context.temp_allocator) or_return
+			defer os.file_info_slice_delete(files, context.temp_allocator)
+
+			parent_path, path_alloc_error := os.clean_path(fmt.aprintf("%s%r..", cstring(&file_dialog.path_buffer[0]), os.Path_Separator, allocator=alloc), alloc)
+			if path_alloc_error == .None {
+				append(&file_dialog.items_in_folder, DirectoryItem{
+					name = "../",
+					path = strings.clone_to_cstring(parent_path, alloc),
+					type = .Directory
+				})
 			}
-			append(&file_dialog.items_in_folder, name)
+
+			for f in files {
+				item: DirectoryItem
+				item.name = strings.clone_to_cstring(f.name, alloc)
+				path := fmt.aprintf("%s%r%s", cstring(&file_dialog.path_buffer[0]), os.Path_Separator, item.name, allocator=alloc)
+				cleaned, err := os.clean_path(path, alloc)
+				
+				if err == .None {
+					item.path = strings.clone_to_cstring(cleaned, alloc)
+				} else {
+					item.path = strings.clone_to_cstring(path, alloc)
+				}
+
+				if f.type == .Directory {
+					item.type = .Directory
+				} else {
+					item.type = .File
+				}
+				append(&file_dialog.items_in_folder, item)
+			}
 		}
+
 	
 		style := ig.GetStyle()
 		ig.PushItemWidth(ig.GetContentRegionAvail().x)
@@ -242,14 +295,29 @@ show_file_dialog :: proc(file_dialog: ^FileDialog) -> os.Error {
 		avail := ig.GetContentRegionAvail()
 		listbox_height := avail.y - ig.GetFrameHeightWithSpacing() - style.ItemSpacing.y
 		if ig.BeginListBox("##folder", ig.Vec2{avail.x, listbox_height}) {
+
+			// @Todo: Should we do something to have the folders come first?
 			for item, i in file_dialog.items_in_folder {
 				is_selected := i32(i) == file_dialog.selected_file
-				if ig.SelectableBoolPtr(item, &is_selected, {.AllowDoubleClick}) {
-					if ig.IsMouseDoubleClicked(.Left) {
-						file_dialog.path_buffer = {}
-						copy(file_dialog.path_buffer[:], string(item))
-					} else {
-						file_dialog.selected_file = i32(i)
+				switch item.type {
+				case .File:
+					
+					if ig.SelectableBoolPtr(item.name, &is_selected, {.AllowDoubleClick}) {
+						if ig.IsMouseDoubleClicked(.Left) {
+							fmt.printfln("OPEN: %s", item.path)
+						} else {
+							file_dialog.selected_file = i32(i)
+						}
+					}
+
+				case .Directory:
+					if ig.SelectableBoolPtr(fmt.ctprint("[DIR]", item.name), &is_selected, {.AllowDoubleClick}) {
+						if ig.IsMouseDoubleClicked(.Left) {
+							file_dialog.path_buffer = {}
+							copy(file_dialog.path_buffer[:], string(item.path))
+						} else {
+							file_dialog.selected_file = i32(i)
+						}
 					}
 				}
 				if is_selected {
@@ -263,16 +331,11 @@ show_file_dialog :: proc(file_dialog: ^FileDialog) -> os.Error {
 		ig.SameLine()
 		ig.Button("Open")
 	}
-	ig.End()
 
 	return nil
 }
 
-rgba :: proc(r, g, b: u8, a: f32 = 1.0) -> ig.Vec4 {
-	return {f32(r) / 255.0, f32(g) / 255.0, f32(b) / 255.0, a}
-}
-
-set_theme :: proc() {
+set_common_elements :: proc() {
 	style := ig.GetStyle()
 
 	// --- 1. Sizing & Spacing ---
@@ -298,8 +361,13 @@ set_theme :: proc() {
 	style.PopupBorderSize = 1.0
 	style.FrameBorderSize = 1.0
 	style.TabBorderSize = 1.0
+}
 
-	// --- 3. Color Palette: Paper & Ink ---
+set_light_theme :: proc() {
+	set_common_elements()
+	style := ig.GetStyle()
+
+	// --- Color Palette: Paper & Ink (Light) ---
 
 	// Main Text & Background
 	style.Colors[ig.Col.Text]              = {0.12, 0.12, 0.12, 1.00} // Deep Carbon Ink
@@ -370,8 +438,85 @@ set_theme :: proc() {
 	style.Colors[ig.Col.DockingPreview]    = {0.17, 0.34, 0.59, 0.40}
 	style.Colors[ig.Col.DockingEmptyBg]    = {0.96, 0.96, 0.94, 1.00}
 
-	// Remaining cols from original code that aren't in the C++ snippet but good to set
 	style.Colors[ig.Col.ModalWindowDimBg]  = {0.00, 0.00, 0.00, 0.50}
+}
+
+set_dark_theme :: proc() {
+	set_common_elements()
+	style := ig.GetStyle()
+
+	// --- Color Palette: Paper & Ink (Dark) ---
+
+	// Main Text & Background
+	style.Colors[ig.Col.Text]              = {0.90, 0.90, 0.88, 1.00} // Off-white Ink
+	style.Colors[ig.Col.TextDisabled]      = {0.55, 0.55, 0.52, 1.00}
+	style.Colors[ig.Col.WindowBg]          = {0.16, 0.16, 0.14, 1.00} // Dark Warm Paper
+	style.Colors[ig.Col.ChildBg]           = {0.12, 0.12, 0.10, 1.00}
+	style.Colors[ig.Col.PopupBg]           = {0.20, 0.20, 0.18, 1.00}
+
+	// Borders & Separators
+	style.Colors[ig.Col.Border]            = {0.30, 0.30, 0.28, 1.00}
+	style.Colors[ig.Col.BorderShadow]      = {0.00, 0.00, 0.00, 0.00}
+	style.Colors[ig.Col.Separator]         = {0.30, 0.30, 0.28, 1.00}
+	style.Colors[ig.Col.SeparatorHovered]  = {0.17, 0.34, 0.59, 0.78}
+	style.Colors[ig.Col.SeparatorActive]   = {0.17, 0.34, 0.59, 1.00}
+
+	// Frames (Inputs, Checkboxes, etc)
+	style.Colors[ig.Col.FrameBg]           = {0.22, 0.22, 0.20, 1.00}
+	style.Colors[ig.Col.FrameBgHovered]    = {0.28, 0.28, 0.25, 1.00}
+	style.Colors[ig.Col.FrameBgActive]     = {0.34, 0.34, 0.30, 1.00}
+
+	// Titles & Menus
+	style.Colors[ig.Col.TitleBg]           = {0.12, 0.12, 0.10, 1.00}
+	style.Colors[ig.Col.TitleBgActive]     = {0.18, 0.18, 0.15, 1.00}
+	style.Colors[ig.Col.TitleBgCollapsed]  = {0.12, 0.12, 0.10, 0.75}
+	style.Colors[ig.Col.MenuBarBg]         = {0.18, 0.18, 0.15, 1.00}
+
+	// Scrollbars
+	style.Colors[ig.Col.ScrollbarBg]       = {0.16, 0.16, 0.14, 1.00}
+	style.Colors[ig.Col.ScrollbarGrab]     = {0.35, 0.35, 0.32, 1.00}
+	style.Colors[ig.Col.ScrollbarGrabHovered] = {0.45, 0.45, 0.42, 1.00}
+	style.Colors[ig.Col.ScrollbarGrabActive]  = {0.55, 0.55, 0.52, 1.00}
+
+	// Interactables (Blueprint Blue)
+	style.Colors[ig.Col.CheckMark]         = {0.17, 0.34, 0.59, 1.00}
+	style.Colors[ig.Col.SliderGrab]        = {0.17, 0.34, 0.59, 0.70}
+	style.Colors[ig.Col.SliderGrabActive]  = {0.17, 0.34, 0.59, 1.00}
+	style.Colors[ig.Col.Button]            = {0.17, 0.34, 0.59, 0.15}
+	style.Colors[ig.Col.ButtonHovered]     = {0.17, 0.34, 0.59, 0.30}
+	style.Colors[ig.Col.ButtonActive]      = {0.17, 0.34, 0.59, 0.45}
+
+	// Header (Selection in lists/trees)
+	style.Colors[ig.Col.Header]            = {0.17, 0.34, 0.59, 0.20}
+	style.Colors[ig.Col.HeaderHovered]     = {0.17, 0.34, 0.59, 0.35}
+	style.Colors[ig.Col.HeaderActive]      = {0.17, 0.34, 0.59, 0.50}
+
+	// Tables
+	style.Colors[ig.Col.TableHeaderBg]     = {0.20, 0.20, 0.18, 1.00}
+	style.Colors[ig.Col.TableBorderStrong] = {0.30, 0.30, 0.28, 1.00}
+	style.Colors[ig.Col.TableBorderLight]  = {0.25, 0.25, 0.22, 1.00}
+	style.Colors[ig.Col.TableRowBg]        = {0.00, 0.00, 0.00, 0.00}
+	style.Colors[ig.Col.TableRowBgAlt]     = {0.00, 0.00, 0.00, 0.06}
+
+	// Tabs
+	style.Colors[ig.Col.Tab]               = {0.18, 0.18, 0.15, 1.00}
+	style.Colors[ig.Col.TabHovered]        = {0.25, 0.25, 0.22, 1.00}
+	style.Colors[ig.Col.TabSelected]       = {0.22, 0.22, 0.20, 1.00}
+	style.Colors[ig.Col.TabDimmed]         = {0.14, 0.14, 0.12, 1.00}
+	style.Colors[ig.Col.TabDimmedSelected] = {0.18, 0.18, 0.15, 1.00}
+
+	// Misc
+	style.Colors[ig.Col.PlotLines]         = {0.17, 0.34, 0.59, 1.00}
+	style.Colors[ig.Col.PlotHistogram]     = {0.17, 0.34, 0.59, 1.00}
+	style.Colors[ig.Col.TextSelectedBg]    = {0.17, 0.34, 0.59, 0.30}
+	style.Colors[ig.Col.DragDropTarget]    = {0.17, 0.34, 0.59, 0.90}
+	style.Colors[ig.Col.NavCursor]         = {0.17, 0.34, 0.59, 1.00}
+
+	// Docking
+	style.Colors[ig.Col.DockingPreview]    = {0.17, 0.34, 0.59, 0.40}
+	style.Colors[ig.Col.DockingEmptyBg]    = {0.16, 0.16, 0.14, 1.00}
+
+	style.Colors[ig.Col.ModalWindowDimBg]  = {0.00, 0.00, 0.00, 0.60}
 }
 
 extract_database_information :: proc(filename: string) -> sqlite.SQLiteError {
