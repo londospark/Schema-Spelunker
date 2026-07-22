@@ -255,8 +255,9 @@ is_sqlite_database :: proc(path: string) -> bool {
 
 show_file_dialog :: proc(file_dialog: ^FileDialog) -> os.Error {
 	ig.SetNextWindowSize(ig.Vec2{300, 500}, .Appearing)
+	
+	defer ig.End()
 	if ig.Begin("Open File...") {
-		defer ig.End()
 
 		if file_dialog.dirty {
 			mem.dynamic_arena_free_all(&file_dialog.arena)
