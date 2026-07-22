@@ -60,6 +60,8 @@ SQLite schema browser. SDL3 + Dear ImGui + OpenGL 3.3.
 - All entries must have: `[S/M/L]` size, `[P0/P1/P2]` priority, `[cat]` category tag.
 - When a task is completed, update its status and add the completed date inline if relevant.
 - When a new task is discovered mid-session, add it to the appropriate section immediately.
+- The **"If needed later"** section in TODO.md is for optimisations we don't yet know
+  if we need — don't build them until a profile or real-world usage proves they matter.
 
 ## Current state
 

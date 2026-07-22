@@ -13,6 +13,14 @@ Legend: `[S/M/L]` = size · `[P0/P1/P2]` = priority · `[cat]` = category
 - [ ] `[S]` `[P2]` `[binding]` Bind `sqlite3_errmsg` for human-readable error messages
 - [ ] `[M]` `[P1]` `[data]` Typed structs for each introspection query so schema data
       is strongly typed rather than ad-hoc
+
+## If needed later
+
+Things we don't know if we'll need, kept here so we don't forget them but don't
+spend time on them prematurely.
+
+- [~] `[S]` `[P3]` `[data]` Consider string interning (esp. column types) if memory
+      usage ever becomes a concern — store `string` directly for now
 - [ ] `[S]` `[P1]` `[data]` Arena allocator for schema data lifetime — load once,
       free on reload
 - [ ] `[M]` `[P2]` `[data]` Dump schema to a custom snapshot format so exploration

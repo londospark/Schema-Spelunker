@@ -24,6 +24,12 @@ framework magic. The project uses Odin for its no-nonsense approach to
 systems programming and its excellent FFI for binding C libraries like
 SQLite.
 
+**Optimisations are driven by profiles, not hunches.** The codebase builds
+things simply first and only adds complexity when real-world usage proves
+it matters. String interning, `#soa` layouts, and other cache-oriented
+tricks live in the "If needed later" section of TODO.md until a profile
+says otherwise.
+
 ## Current status
 
 Early but building fast.
