@@ -6,7 +6,7 @@ Legend: `[S/M/L]` = size · `[P0/P1/P2]` = priority · `[cat]` = category
 
 ## Schema loading
 
-- [ ] `[S]` `[P1]` `[binding]` Column type accessors: `column_int`, `column_double`,
+- [x] `[S]` `[P1]` `[binding]` Column type accessors: `column_int`, `column_double`,
       `column_type`, `column_count`, `column_name`
 - [ ] `[M]` `[P2]` `[binding]` More PRAGMA introspection: `index_list`, `index_info`,
       `foreign_key_list`, `table_xinfo`
@@ -16,9 +16,9 @@ Legend: `[S/M/L]` = size · `[P0/P1/P2]` = priority · `[cat]` = category
 - [ ] `[S]` `[P1]` `[data]` Second pass to resolve FK `to_table`/`to_column` strings
       to `GlobalColumnIndex` after all tables are loaded — then remove temporary
       `from_column` string field from `ForeignKey`
-- [ ] `[S]` `[P2]` `[data]` Read column properties (`type`, `not_null`, `pk`) from
-      `pragma_table_info` — currently stubbed with `@Todo`
-- [ ] `[S]` `[P2]` `[data]` Remove `@Todo` on `database_name` — currently cloned
+- [x] `[S]` `[P2]` `[data]` Read column properties (`type`, `not_null`, `pk`) from
+      `pragma_table_info`
+- [x] `[S]` `[P2]` `[data]` Remove `@Todo` on `database_name` — currently cloned
       from filename, confirm that's the right lifetime
 - [ ] `[S]` `[P2]` `[data]` Avoid duplicate schema load in GUI double-click handler
       (`print_database_information` re-calls `extract_database_information`)

@@ -43,6 +43,7 @@ foreign lib {
 	// Returns a pointer that is only valid until the next sqlite call,
 	// get a clone if you would like something longer lived.
 	column_text :: proc(stmt: Statement, column: c.int) -> cstring ---
+	column_int :: proc(stmt: Statement, column: c.int) -> c.int ---
 }
 
 @(default_calling_convention = "c", link_prefix="sqlite3_")
@@ -56,6 +57,16 @@ foreign lib {
 column_string :: proc(stmt: Statement, column: c.int, allocator: mem.Allocator=context.allocator) -> string {
 	cs := column_text(stmt, column)
 	return strings.clone(string(cs), allocator)
+}
+
+@(require_results)
+column_bool :: proc "c" (stmt: Statement, column: c.int) -> bool {
+	return column_int(stmt, column) != 0
+}
+
+@(require_results)
+column_u32 :: proc "c" (stmt: Statement, column: c.int) -> u32 {
+	return u32(column_int(stmt, column))
 }
 
 @(require_results)

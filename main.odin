@@ -596,7 +596,11 @@ print_database_information :: proc(filename: string) -> sqlite.SQLiteError {
 		fmt.printfln("TABLE: %v", table.name)
 
 		for column in schema.columns[table.from_column:table.to_column] {
-			fmt.printfln("- %v", column.name)
+			not_null: string
+			pk: string
+			if column.not_null || column.composite_key_index > 0 do not_null = "NOT_NULL"
+			if column.composite_key_index > 0 do pk = fmt.tprintf("PRIMARY KEY INDEX: %v", column.composite_key_index)
+			fmt.printfln("- %v OF %v %s %s", column.name, column.type, not_null, pk)
 		}
 	}
 	return .OK
@@ -636,6 +640,9 @@ extract_database_information :: proc(filename: string) -> (schema: Schema, error
 		for sqlite.step(column_stmt) == .ROW {
 			column: Column
 			column.name = sqlite.column_string(column_stmt, 1)
+			column.type = sqlite.column_string(column_stmt, 2)
+			column.not_null = sqlite.column_bool(column_stmt, 3)
+			column.composite_key_index = sqlite.column_u32(column_stmt, 5)
 
 			// @Todo: Finish off the column properties
 
