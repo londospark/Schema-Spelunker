@@ -25,6 +25,13 @@ FileDialog :: struct {
 	arena: mem.Dynamic_Arena
 }
 
+AppState :: struct {
+	schema_name: string,
+	schema_dirty: bool,
+	schema_show: bool,
+	schema: Schema,
+}
+
 DirectoryItemType :: enum {
 	Directory,
 	File
@@ -102,7 +109,7 @@ main :: proc() {
 }
 
 make_imgui_app :: proc() {
-
+	app_state: AppState
 	sdl.SetHint("SDL_HINT_IME_SHOW_UI", "1")
 	if !sdl.Init({.VIDEO}) {
 		fmt.eprintfln("SDL3 init failed: %s", sdl.GetError())
@@ -221,8 +228,18 @@ make_imgui_app :: proc() {
 		{
 			defer ig.Render()
 			if file_dialog.show {
-				show_file_dialog(&file_dialog) or_continue
+				show_file_dialog(&app_state, &file_dialog) or_continue
 			}
+
+			if app_state.schema_dirty {
+				if schema, schema_err := extract_database_information(app_state.schema_name); schema_err == .OK {
+					mem.dynamic_arena_destroy(&app_state.schema.arena)
+					app_state.schema_dirty = false
+					app_state.schema = schema
+				}
+			}
+
+			if app_state.schema_show do show_schema_window(&app_state)
 
 			if ig.BeginMainMenuBar() {
 				if ig.BeginMenu("File") {
@@ -289,9 +306,10 @@ is_sqlite_database :: proc(path: string) -> bool {
     return buf == SQLITE_MAGIC
 }
 
-show_file_dialog :: proc(file_dialog: ^FileDialog) -> os.Error {
+show_file_dialog :: proc(app_state: ^AppState, file_dialog: ^FileDialog) -> (os_err: os.Error) {
 	ig.SetNextWindowSize(ig.Vec2{300, 500}, .Appearing)
 	
+	// @Note: This looks pretty odd but for a window you need the end to be called regardless of the result of ig.Begin(...)
 	defer ig.End()
 	if ig.Begin("Open File...") {
 
@@ -362,12 +380,11 @@ show_file_dialog :: proc(file_dialog: ^FileDialog) -> os.Error {
 					
 					if ig.SelectableBoolPtr(item.name, &is_selected, {.AllowDoubleClick}) {
 						if ig.IsMouseDoubleClicked(.Left) {
+							delete(app_state.schema_name)
 							fmt.printfln("OPEN: %s", item.path)
-							if schema, schema_err := extract_database_information(string(item.path)); schema_err == .OK {
-								defer mem.dynamic_arena_destroy(&schema.arena)
-								print_database_information(string(item.path))
-								fmt.printfln("SCHEMA: %v", schema)
-							}
+							app_state.schema_name = strings.clone(string(item.path))
+							app_state.schema_dirty = true
+							app_state.schema_show = true
 						} else {
 							file_dialog.selected_file = i32(i)
 						}
@@ -396,7 +413,31 @@ show_file_dialog :: proc(file_dialog: ^FileDialog) -> os.Error {
 		ig.Button("Open")
 	}
 
-	return nil
+	return
+}
+
+show_schema_window :: proc(app_state: ^AppState) {
+	schema := app_state.schema
+	ig.SetNextWindowSize(ig.Vec2{800, 600}, .Appearing)
+	defer ig.End()
+	if ig.Begin(strings.clone_to_cstring(schema.database_name, context.temp_allocator)) {
+		avail := ig.GetContentRegionAvail()
+
+		is_selected := false
+		if ig.BeginListBox("##folder", avail) {
+			for table in schema.tables {
+				ig.SelectableBoolPtr(strings.clone_to_cstring(table.name, context.temp_allocator), &is_selected)
+
+				ig.PushID(fmt.ctprintf("##%s", table.name))
+				for column in schema.columns[table.from_column:table.to_column] {
+					list_item := fmt.ctprintf("- %s %s", column.name, column.type)
+					ig.SelectableBoolPtr(list_item, &is_selected)
+				}
+				ig.PopID()
+			}
+			ig.EndListBox()
+		}
+	}
 }
 
 set_common_elements :: proc() {
@@ -621,7 +662,7 @@ extract_database_information :: proc(filename: string) -> (schema: Schema, error
 
 	old_allocator := context.allocator
 	context.allocator = schema.allocator
-	schema.database_name = strings.clone(filename) // @Todo: think about if we need to change this at all
+	schema.database_name = strings.clone(filename)
 
 	current_column: GlobalColumnIndex = 0
 	current_fk: GlobalForeignKeyIndex = 0
@@ -643,8 +684,6 @@ extract_database_information :: proc(filename: string) -> (schema: Schema, error
 			column.type = sqlite.column_string(column_stmt, 2)
 			column.not_null = sqlite.column_bool(column_stmt, 3)
 			column.composite_key_index = sqlite.column_u32(column_stmt, 5)
-
-			// @Todo: Finish off the column properties
 
 			append(&schema.columns, column)
 			current_column += 1
