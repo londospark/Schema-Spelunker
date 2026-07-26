@@ -45,7 +45,7 @@ spend time on them prematurely.
 - [x] `[S]` `[P0]` `[gui]` Dockspace via `DockSpaceOverViewport`
 - [x] `[S]` `[P0]` `[gui]` Roboto TTF font loading
 - [x] `[S]` `[P1]` `[gui]` Menu bar with File > Open and Theme > Light/Dark switching
-- [ ] `[M]` `[P1]` `[gui]` File dialog: custom ImGui window with file list,
+- [x] `[S]` `[P1]` `[gui]` File dialog: custom ImGui window with file list,
       path navigation, open/cancel
   - [x] `[S]` `[P1]` Cancel button wired (closes or resets)
   - [ ] `[S]` `[P1]` Open button — open selected file (stub exists, does nothing)
@@ -53,16 +53,16 @@ spend time on them prematurely.
         `IsMouseDoubleClicked`
   - [~] `[S]` `[P1]` Double-click navigation into subdirectories
         (path_buffer set on click, but takes two frames to take effect since
-        `os.open` already ran this frame — need dirty flag or deferred reopen)
+        `os.open` already ran this frame)
   - [ ] `[S]` `[P1]` Keyboard shortcuts (Enter to confirm, Esc to cancel)
   - [x] `[S]` `[P2]` Path bar showing current directory (InputText, works now
         that buffer isn't zeroed every frame)
-  - [ ] `[S]` `[P2]` File type filter (`.db`, `.sqlite`, `*`)
+  - [x] `[S]` `[P2]` File type filter — magic bytes check on file open
   - [x] `[S]` `[P1]` Fix stability bug: `or_continue` on `show_file_dialog` error
         skips `ig.Render()` — fixed with `defer ig.Render()` block
   - [x] `[S]` `[P1]` Fix path buffer lifecycle: don't zero `path_buffer` every
         frame before `os.open` — no longer zeroed on every frame
-  - [ ] `[S]` `[P1]` File dialog: directory re-read every frame even when
+  - [x] `[S]` `[P1]` File dialog: directory re-read every frame even when
         unchanged — add `dirty` flag to `FileDialog`, only rebuild listing
         on navigation
   - [ ] `[S]` `[P2]` File dialog: sort directories before files in the list
@@ -70,10 +70,11 @@ spend time on them prematurely.
         directory can't be opened — show error message or return error
 - [x] `[S]` `[P1]` `[gui]` File dialog: use arena allocator for per-frame
       directory listing (reset each frame, no per-element delete)
-- [ ] `[M]` `[P1]` `[gui]` Query and display schema data in ImGui tree/lists
-- [ ] `[L]` `[P1]` `[gui]` ER diagram node graph via ImNodes: tables as labelled
-      nodes, FK relationships as edges
-- [ ] `[M]` `[P2]` `[gui]` Node canvas — drag, zoom, select
+- [~] `[M]` `[P1]` `[gui]` Query and display schema data in ImGui tree/lists
+      (basic listbox works in schema window, needs polish)
+- [~] `[L]` `[P1]` `[gui]` ER diagram node graph via ImNodes: tables as labelled
+      nodes with columns, Paper & Ink theme applied
+- [ ] `[M]` `[P2]` `[gui]` Node canvas — drag, zoom, select (ImNodes provides basic)
 - [ ] `[M]` `[P2]` `[gui]` Sub-diagram view (1–2 degrees of separation from
       a selected table)
 - [ ] `[S]` `[P2]` `[gui]` Schema snapshot viewer (load from file, no DB needed)
@@ -123,8 +124,7 @@ spend time on them prematurely.
 ## Tech debt / polish
 
 
-- [ ] `[S]` `[P2]` `[gui]` Add theme state enum to track current theme
-      (currently not tracked, redundant `set_common_elements` calls on switch)
+- [x] `[S]` `[P2]` `[gui]` Add theme state enum to track current theme
 - [x] `[S]` `[P2]` `[project]` Update AGENTS.md "Current state" section —
       (was still saying "empty dockspace" and "demo window removed")
 - [x] `[S]` `[P3]` `[gui]` Bump `BUF_LEN` from 1024 to 4096 for long Windows paths
