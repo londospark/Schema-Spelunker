@@ -93,9 +93,13 @@ Schema :: struct {
 	allocator: mem.Allocator
 }
 
+convert_odin_string_to_begin_and_end_cstrings :: proc(s: string) -> (begin: cstring, end: cstring) {
+	return cstring(raw_data(s)), cstring(&raw_data(s)[len(s)])
+}
+
 TextUnformatted :: proc(s: string) {
     if len(s) > 0 {
-        ig.TextUnformatted(cstring(raw_data(s)), cstring(&raw_data(s)[len(s)]))
+        ig.TextUnformatted(convert_odin_string_to_begin_and_end_cstrings(s))
     }
 }
 
