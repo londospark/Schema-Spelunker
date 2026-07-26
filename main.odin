@@ -22,6 +22,11 @@ FileDialog :: struct {
 	arena: mem.Dynamic_Arena
 }
 
+SchemaWindow :: struct {
+	show: bool,
+	selected_table: i32
+}
+
 Theme :: enum {
 	Light,
 	Dark
@@ -30,9 +35,9 @@ Theme :: enum {
 AppState :: struct {
 	schema_name: string,
 	schema_dirty: bool,
-	schema_show: bool,
 	schema: Schema,
 	file_dialog: FileDialog,
+	schema_window: SchemaWindow,
 	theme: Theme
 }
 
@@ -86,6 +91,12 @@ Schema :: struct {
 
 	arena: mem.Dynamic_Arena,
 	allocator: mem.Allocator
+}
+
+TextUnformatted :: proc(s: string) {
+    if len(s) > 0 {
+        ig.TextUnformatted(cstring(raw_data(s)), cstring(&raw_data(s)[len(s)]))
+    }
 }
 
 init_file_dialog :: proc(fd: ^FileDialog) -> (err: os.Error) {
@@ -247,7 +258,7 @@ make_imgui_app :: proc() {
 				}
 			}
 
-			if app_state.schema_show do show_schema_window(&app_state)
+			if app_state.schema_window.show do show_schema_window(&app_state)
 
 			if ig.BeginMainMenuBar() {
 				if ig.BeginMenu("File") {
@@ -392,7 +403,7 @@ show_file_dialog :: proc(app_state: ^AppState) -> (os_err: os.Error) {
 							fmt.printfln("OPEN: %s", item.path)
 							app_state.schema_name = strings.clone(string(item.path))
 							app_state.schema_dirty = true
-							app_state.schema_show = true
+							app_state.schema_window.show = true
 						} else {
 							app_state.file_dialog.selected_file = i32(i)
 						}
@@ -479,17 +490,20 @@ set_imnodes_dark_theme :: proc() {
 show_node_editor :: proc(app_state: ^AppState) {
 	ig.SetNextWindowSize(ig.Vec2{600, 400}, .Appearing)
 	defer ig.End()
-	if ig.Begin("Node Editor") {
+	if ig.Begin("Diagram") {
+		ig.Button("One Degree")
+		ig.SameLine()
+		ig.Button("Two Degrees")
 		imn.BeginNodeEditor()
 
 		for table, i in app_state.schema.tables {
 			imn.BeginNode(i32(i))
 			imn.BeginNodeTitleBar()
-			ig.TextUnformatted(strings.clone_to_cstring(table.name, context.temp_allocator))
+			TextUnformatted(table.name)
 			imn.EndNodeTitleBar()
 
 			for column in app_state.schema.columns[table.from_column:table.to_column] {
-				ig.TextUnformatted(strings.clone_to_cstring(column.name, context.temp_allocator))
+				TextUnformatted(column.name)
 			}
 			imn.EndNode()
 		}
@@ -507,15 +521,11 @@ show_schema_window :: proc(app_state: ^AppState) {
 
 		is_selected := false
 		if ig.BeginListBox("##folder", avail) {
-			for table in schema.tables {
-				ig.SelectableBoolPtr(strings.clone_to_cstring(table.name, context.temp_allocator), &is_selected)
-
-				ig.PushID(fmt.ctprintf("##%s", table.name))
-				for column in schema.columns[table.from_column:table.to_column] {
-					list_item := fmt.ctprintf("- %s %s", column.name, column.type)
-					ig.SelectableBoolPtr(list_item, &is_selected)
+			for table, i in schema.tables {
+				is_selected = i32(i) == app_state.schema_window.selected_table
+				if ig.SelectableBoolPtr(strings.clone_to_cstring(table.name, context.temp_allocator), &is_selected) {
+					app_state.schema_window.selected_table = i32(i)
 				}
-				ig.PopID()
 			}
 			ig.EndListBox()
 		}
