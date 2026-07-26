@@ -67,6 +67,7 @@ void imnGetNodeGridSpacePos(int node_id, float* out_x, float* out_y);
 void imnStyleColorsDark(void);
 void imnStyleColorsLight(void);
 void imnStyleColorsClassic(void);
+void* imnGetStyle(void);
 
 #ifdef __cplusplus
 }

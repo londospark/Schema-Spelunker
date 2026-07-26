@@ -62,4 +62,6 @@ void  imnStyleColorsDark(void)              { ImNodes::StyleColorsDark(); }
 void  imnStyleColorsLight(void)             { ImNodes::StyleColorsLight(); }
 void  imnStyleColorsClassic(void)           { ImNodes::StyleColorsClassic(); }
 
+void* imnGetStyle(void)                     { return &ImNodes::GetStyle(); }
+
 }
