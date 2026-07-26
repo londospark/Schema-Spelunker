@@ -8,6 +8,7 @@ import "core:time"
 import sqlite "vendor/sqlite3"
 import sdl "vendor:sdl3"
 import ig "vendor/imgui"
+import imn "vendor/imnodes"
 import sdl_impl "vendor/imgui/backends"
 import gl_impl "vendor/imgui/backends/opengl3"
 
@@ -145,6 +146,9 @@ make_imgui_app :: proc() {
 	// Init ImGui
 	ig.CreateContext()
 	defer ig.DestroyContext(nil)
+
+	imn.CreateContext()
+	defer imn.DestroyContext(nil)
 	set_light_theme()
 
 	io := ig.GetIO()
@@ -230,6 +234,8 @@ make_imgui_app :: proc() {
 			if file_dialog.show {
 				show_file_dialog(&app_state, &file_dialog) or_continue
 			}
+
+			show_node_editor()
 
 			if app_state.schema_dirty {
 				if schema, schema_err := extract_database_information(app_state.schema_name); schema_err == .OK {
@@ -416,6 +422,73 @@ show_file_dialog :: proc(app_state: ^AppState, file_dialog: ^FileDialog) -> (os_
 	return
 }
 
+imn_col :: proc(r, g, b: f32, a: f32 = 1.0) -> u32 {
+	ri := u8(clamp(r, 0.0, 1.0) * 255.0)
+	gi := u8(clamp(g, 0.0, 1.0) * 255.0)
+	bi := u8(clamp(b, 0.0, 1.0) * 255.0)
+	ai := u8(clamp(a, 0.0, 1.0) * 255.0)
+	return u32(ri) | (u32(gi) << 8) | (u32(bi) << 16) | (u32(ai) << 24)
+}
+
+set_imnodes_light_theme :: proc() {
+	imn.StyleColorsLight()
+	style := imn.GetStyle()
+	style.colors[imn.Col.NodeBackground]             = imn_col(1.00, 1.00, 1.00)
+	style.colors[imn.Col.NodeBackgroundHovered]      = imn_col(0.98, 0.98, 0.95)
+	style.colors[imn.Col.NodeBackgroundSelected]     = imn_col(0.96, 0.96, 0.93)
+	style.colors[imn.Col.NodeOutline]                = imn_col(0.75, 0.75, 0.72)
+	style.colors[imn.Col.TitleBar]                   = imn_col(0.92, 0.92, 0.90)
+	style.colors[imn.Col.TitleBarHovered]            = imn_col(0.88, 0.88, 0.86)
+	style.colors[imn.Col.TitleBarSelected]           = imn_col(0.85, 0.85, 0.83)
+	style.colors[imn.Col.Link]                       = imn_col(0.17, 0.34, 0.59)
+	style.colors[imn.Col.LinkHovered]                = imn_col(0.25, 0.45, 0.72)
+	style.colors[imn.Col.LinkSelected]               = imn_col(0.30, 0.50, 0.78)
+	style.colors[imn.Col.Pin]                        = imn_col(0.17, 0.34, 0.59)
+	style.colors[imn.Col.PinHovered]                 = imn_col(0.25, 0.45, 0.72)
+	style.colors[imn.Col.BoxSelector]                = imn_col(0.17, 0.34, 0.59, 0.30)
+	style.colors[imn.Col.BoxSelectorOutline]         = imn_col(0.17, 0.34, 0.59, 0.80)
+	style.colors[imn.Col.GridBackground]             = imn_col(0.96, 0.96, 0.94)
+	style.colors[imn.Col.GridLine]                   = imn_col(0.85, 0.85, 0.82)
+	style.colors[imn.Col.GridLinePrimary]            = imn_col(0.75, 0.75, 0.72)
+}
+
+set_imnodes_dark_theme :: proc() {
+	imn.StyleColorsDark()
+	style := imn.GetStyle()
+	style.colors[imn.Col.NodeBackground]             = imn_col(0.22, 0.22, 0.20)
+	style.colors[imn.Col.NodeBackgroundHovered]      = imn_col(0.25, 0.25, 0.22)
+	style.colors[imn.Col.NodeBackgroundSelected]     = imn_col(0.16, 0.16, 0.14)
+	style.colors[imn.Col.NodeOutline]                = imn_col(0.30, 0.30, 0.28)
+	style.colors[imn.Col.TitleBar]                   = imn_col(0.12, 0.12, 0.10)
+	style.colors[imn.Col.TitleBarHovered]            = imn_col(0.18, 0.18, 0.15)
+	style.colors[imn.Col.TitleBarSelected]           = imn_col(0.22, 0.22, 0.18)
+	style.colors[imn.Col.Link]                       = imn_col(0.17, 0.34, 0.59)
+	style.colors[imn.Col.LinkHovered]                = imn_col(0.25, 0.45, 0.72)
+	style.colors[imn.Col.LinkSelected]               = imn_col(0.30, 0.50, 0.78)
+	style.colors[imn.Col.Pin]                        = imn_col(0.17, 0.34, 0.59)
+	style.colors[imn.Col.PinHovered]                 = imn_col(0.25, 0.45, 0.72)
+	style.colors[imn.Col.BoxSelector]                = imn_col(0.17, 0.34, 0.59, 0.30)
+	style.colors[imn.Col.BoxSelectorOutline]         = imn_col(0.17, 0.34, 0.59, 0.80)
+	style.colors[imn.Col.GridBackground]             = imn_col(0.16, 0.16, 0.14)
+	style.colors[imn.Col.GridLine]                   = imn_col(0.30, 0.30, 0.28)
+	style.colors[imn.Col.GridLinePrimary]            = imn_col(0.40, 0.40, 0.38)
+}
+
+show_node_editor :: proc() {
+	ig.SetNextWindowSize(ig.Vec2{400, 400}, .Appearing)
+	defer ig.End()
+	if ig.Begin("Node Editor") {
+		imn.BeginNodeEditor()
+		imn.BeginNode(1)
+		imn.BeginNodeTitleBar()
+		ig.TextUnformatted("Node")
+		imn.EndNodeTitleBar()
+		ig.Dummy(ig.Vec2{100, 100})
+		imn.EndNode()
+		imn.EndNodeEditor()
+	}
+}
+
 show_schema_window :: proc(app_state: ^AppState) {
 	schema := app_state.schema
 	ig.SetNextWindowSize(ig.Vec2{800, 600}, .Appearing)
@@ -470,6 +543,7 @@ set_common_elements :: proc() {
 
 set_light_theme :: proc() {
 	set_common_elements()
+	set_imnodes_light_theme()
 	style := ig.GetStyle()
 
 	// --- Color Palette: Paper & Ink (Light) ---
@@ -548,6 +622,7 @@ set_light_theme :: proc() {
 
 set_dark_theme :: proc() {
 	set_common_elements()
+	set_imnodes_dark_theme()
 	style := ig.GetStyle()
 
 	// --- Color Palette: Paper & Ink (Dark) ---
