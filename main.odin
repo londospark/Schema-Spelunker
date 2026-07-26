@@ -487,8 +487,10 @@ show_node_editor :: proc(app_state: ^AppState) {
 			imn.BeginNodeTitleBar()
 			ig.TextUnformatted(strings.clone_to_cstring(table.name, context.temp_allocator))
 			imn.EndNodeTitleBar()
-			ig.TextUnformatted("Columns go here")
-			// ig.Dummy(ig.Vec2{100, 100})
+
+			for column in app_state.schema.columns[table.from_column:table.to_column] {
+				ig.TextUnformatted(strings.clone_to_cstring(column.name, context.temp_allocator))
+			}
 			imn.EndNode()
 		}
 
