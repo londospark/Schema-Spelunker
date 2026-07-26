@@ -38,6 +38,12 @@ spend time on them prematurely.
       doesn't need repeated DB hits
 - [ ] `[S]` `[P2]` `[cli]` CLI mode: `schema_spelunker dump something.db` to produce
       the snapshot
+- [~] `[S]` `[P3]` `[perf]` Pre-filter magic bytes check by `.db`/`.sqlite` extension
+      first to avoid opening every file in large directories
+- [~] `[S]` `[P3]` `[perf]` Replace `fmt.ctprintf` + `clone_to_cstring` with
+      `ig.TextUnformatted` in schema/node display loops to avoid per-frame allocs
+- [~] `[S]` `[P3]` `[perf]` Batch SQLite introspection queries instead of one
+      `PRAGMA` per table (2000+ round trips at scale)
 
 ## GUI
 
