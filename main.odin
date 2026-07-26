@@ -12,13 +12,9 @@ import imn "vendor/imnodes"
 import sdl_impl "vendor/imgui/backends"
 import gl_impl "vendor/imgui/backends/opengl3"
 
-Window :: struct {
-	show: bool
-}
-
 BUF_LEN :: 4096
 FileDialog :: struct {
-	using window: Window,
+	show: bool,
 	dirty: bool,
 	selected_file: i32,
 	path_buffer: [BUF_LEN]u8,
@@ -26,11 +22,18 @@ FileDialog :: struct {
 	arena: mem.Dynamic_Arena
 }
 
+Theme :: enum {
+	Light,
+	Dark
+}
+
 AppState :: struct {
 	schema_name: string,
 	schema_dirty: bool,
 	schema_show: bool,
 	schema: Schema,
+	file_dialog: FileDialog,
+	theme: Theme
 }
 
 DirectoryItemType :: enum {
@@ -85,7 +88,7 @@ Schema :: struct {
 	allocator: mem.Allocator
 }
 
-make_file_dialog :: proc() -> (fd: FileDialog, err: os.Error) {
+init_file_dialog :: proc(fd: ^FileDialog) -> (err: os.Error) {
 	fd.show = true // Show on startup
 	fd.selected_file = -1
 	mem.dynamic_arena_init(&fd.arena)
@@ -94,7 +97,7 @@ make_file_dialog :: proc() -> (fd: FileDialog, err: os.Error) {
 	directory_path := os.get_working_directory(context.temp_allocator) or_return
 	copy(fd.path_buffer[:], directory_path)
 	fd.dirty = true
-	return fd, nil
+	return nil
 }
 
 main :: proc() {
@@ -149,7 +152,7 @@ make_imgui_app :: proc() {
 
 	imn.CreateContext()
 	defer imn.DestroyContext(nil)
-	set_light_theme()
+	set_light_theme(&app_state)
 
 	io := ig.GetIO()
 	font_filename: cstring = "Roboto.ttf"
@@ -190,18 +193,17 @@ make_imgui_app :: proc() {
 		multiple = m
 	}
 
-
-
 	// Frame pacing throttle: 30-frame ring buffer
 	FPS_HISTORY :: 30
 	fps_ring : [FPS_HISTORY]f64
 	fps_idx  : u32
 	fps_full := false
 
-	file_dialog, err := make_file_dialog()
-	defer mem.dynamic_arena_destroy(&file_dialog.arena)
-
-	if err != nil do return
+	if err := init_file_dialog(&app_state.file_dialog); err != nil {
+		fmt.eprintfln("File dialog init failed: %v", err)
+		return
+	}
+	defer mem.dynamic_arena_destroy(&app_state.file_dialog.arena)
 
 	// Main loop
 	event: sdl.Event
@@ -231,11 +233,11 @@ make_imgui_app :: proc() {
 
 		{
 			defer ig.Render()
-			if file_dialog.show {
-				show_file_dialog(&app_state, &file_dialog) or_continue
+			if app_state.file_dialog.show {
+				show_file_dialog(&app_state) or_continue
 			}
 
-			show_node_editor()
+			show_node_editor(&app_state)
 
 			if app_state.schema_dirty {
 				if schema, schema_err := extract_database_information(app_state.schema_name); schema_err == .OK {
@@ -249,12 +251,12 @@ make_imgui_app :: proc() {
 
 			if ig.BeginMainMenuBar() {
 				if ig.BeginMenu("File") {
-					if ig.MenuItem("Open...") do file_dialog.show = true
+					if ig.MenuItem("Open...") do app_state.file_dialog.show = true
 					ig.EndMenu()
 				}
 				if ig.BeginMenu("Theme") {
-					if ig.MenuItem("Light") do set_light_theme()
-					if ig.MenuItem("Dark") do set_dark_theme()
+					if ig.MenuItem("Light") do set_light_theme(&app_state)
+					if ig.MenuItem("Dark")  do set_dark_theme(&app_state)
 					ig.EndMenu()
 				}
 				ig.EndMainMenuBar()
@@ -312,30 +314,30 @@ is_sqlite_database :: proc(path: string) -> bool {
     return buf == SQLITE_MAGIC
 }
 
-show_file_dialog :: proc(app_state: ^AppState, file_dialog: ^FileDialog) -> (os_err: os.Error) {
+show_file_dialog :: proc(app_state: ^AppState) -> (os_err: os.Error) {
 	ig.SetNextWindowSize(ig.Vec2{300, 500}, .Appearing)
 	
 	// @Note: This looks pretty odd but for a window you need the end to be called regardless of the result of ig.Begin(...)
 	defer ig.End()
 	if ig.Begin("Open File...") {
 
-		if file_dialog.dirty {
-			mem.dynamic_arena_free_all(&file_dialog.arena)
-			alloc := mem.dynamic_arena_allocator(&file_dialog.arena)
+		if app_state.file_dialog.dirty {
+			mem.dynamic_arena_free_all(&app_state.file_dialog.arena)
+			alloc := mem.dynamic_arena_allocator(&app_state.file_dialog.arena)
 		
-			directory_handle, error := os.open(string(file_dialog.path_buffer[:]))
+			directory_handle, error := os.open(string(app_state.file_dialog.path_buffer[:]))
 			defer os.close(directory_handle)
 
-			file_dialog.items_in_folder = make([dynamic]DirectoryItem, alloc)
+			app_state.file_dialog.items_in_folder = make([dynamic]DirectoryItem, alloc)
 
 			if error == os.ERROR_NONE {
 
 				files := os.read_dir(directory_handle, -1, context.temp_allocator) or_return
 				defer os.file_info_slice_delete(files, context.temp_allocator)
 
-				parent_path, path_alloc_error := os.clean_path(fmt.aprintf("%s%r..", cstring(&file_dialog.path_buffer[0]), os.Path_Separator, allocator=alloc), alloc)
+				parent_path, path_alloc_error := os.clean_path(fmt.aprintf("%s%r..", cstring(&app_state.file_dialog.path_buffer[0]), os.Path_Separator, allocator=alloc), alloc)
 				if path_alloc_error == .None {
-					append(&file_dialog.items_in_folder, DirectoryItem{
+					append(&app_state.file_dialog.items_in_folder, DirectoryItem{
 						name = "../",
 						path = strings.clone_to_cstring(parent_path, alloc),
 						type = .Directory
@@ -345,7 +347,7 @@ show_file_dialog :: proc(app_state: ^AppState, file_dialog: ^FileDialog) -> (os_
 				for f in files {
 					item: DirectoryItem
 					item.name = strings.clone_to_cstring(f.name, alloc)
-					path := fmt.aprintf("%s%r%s", cstring(&file_dialog.path_buffer[0]), os.Path_Separator, item.name, allocator=alloc)
+					path := fmt.aprintf("%s%r%s", cstring(&app_state.file_dialog.path_buffer[0]), os.Path_Separator, item.name, allocator=alloc)
 					cleaned, err := os.clean_path(path, alloc)
 					
 					if err == .None {
@@ -361,17 +363,17 @@ show_file_dialog :: proc(app_state: ^AppState, file_dialog: ^FileDialog) -> (os_
 					}
 
 					if item.type == .Directory || is_sqlite_database(string(item.path)) {
-						append(&file_dialog.items_in_folder, item)
+						append(&app_state.file_dialog.items_in_folder, item)
 					}
 				}
 			}
-			file_dialog.dirty = false
+			app_state.file_dialog.dirty = false
 		}
 
 	
 		style := ig.GetStyle()
 		ig.PushItemWidth(ig.GetContentRegionAvail().x)
-		if ig.InputText("##path", cstring(&file_dialog.path_buffer[0]), BUF_LEN) do file_dialog.dirty = true
+		if ig.InputText("##path", cstring(&app_state.file_dialog.path_buffer[0]), BUF_LEN) do app_state.file_dialog.dirty = true
 		ig.PopItemWidth()
 	
 		avail := ig.GetContentRegionAvail()
@@ -379,8 +381,8 @@ show_file_dialog :: proc(app_state: ^AppState, file_dialog: ^FileDialog) -> (os_
 		if ig.BeginListBox("##folder", ig.Vec2{avail.x, listbox_height}) {
 
 			// @Todo: Should we do something to have the folders come first?
-			for item, i in file_dialog.items_in_folder {
-				is_selected := i32(i) == file_dialog.selected_file
+			for item, i in app_state.file_dialog.items_in_folder {
+				is_selected := i32(i) == app_state.file_dialog.selected_file
 				switch item.type {
 				case .File:
 					
@@ -392,18 +394,18 @@ show_file_dialog :: proc(app_state: ^AppState, file_dialog: ^FileDialog) -> (os_
 							app_state.schema_dirty = true
 							app_state.schema_show = true
 						} else {
-							file_dialog.selected_file = i32(i)
+							app_state.file_dialog.selected_file = i32(i)
 						}
 					}
 
 				case .Directory:
 					if ig.SelectableBoolPtr(fmt.ctprint("[DIR]", item.name), &is_selected, {.AllowDoubleClick}) {
 						if ig.IsMouseDoubleClicked(.Left) {
-							file_dialog.dirty = true
-							file_dialog.path_buffer = {}
-							copy(file_dialog.path_buffer[:], string(item.path))
+							app_state.file_dialog.dirty = true
+							app_state.file_dialog.path_buffer = {}
+							copy(app_state.file_dialog.path_buffer[:], string(item.path))
 						} else {
-							file_dialog.selected_file = i32(i)
+							app_state.file_dialog.selected_file = i32(i)
 						}
 					}
 				}
@@ -414,7 +416,7 @@ show_file_dialog :: proc(app_state: ^AppState, file_dialog: ^FileDialog) -> (os_
 			ig.EndListBox()
 		}
 	
-		if ig.Button("Cancel") do file_dialog.show = false
+		if ig.Button("Cancel") do app_state.file_dialog.show = false
 		ig.SameLine()
 		ig.Button("Open")
 	}
@@ -474,17 +476,22 @@ set_imnodes_dark_theme :: proc() {
 	style.colors[imn.Col.GridLinePrimary]            = imn_col(0.40, 0.40, 0.38)
 }
 
-show_node_editor :: proc() {
-	ig.SetNextWindowSize(ig.Vec2{400, 400}, .Appearing)
+show_node_editor :: proc(app_state: ^AppState) {
+	ig.SetNextWindowSize(ig.Vec2{600, 400}, .Appearing)
 	defer ig.End()
 	if ig.Begin("Node Editor") {
 		imn.BeginNodeEditor()
-		imn.BeginNode(1)
-		imn.BeginNodeTitleBar()
-		ig.TextUnformatted("Node")
-		imn.EndNodeTitleBar()
-		ig.Dummy(ig.Vec2{100, 100})
-		imn.EndNode()
+
+		for table, i in app_state.schema.tables {
+			imn.BeginNode(i32(i))
+			imn.BeginNodeTitleBar()
+			ig.TextUnformatted(strings.clone_to_cstring(table.name, context.temp_allocator))
+			imn.EndNodeTitleBar()
+			ig.TextUnformatted("Columns go here")
+			// ig.Dummy(ig.Vec2{100, 100})
+			imn.EndNode()
+		}
+
 		imn.EndNodeEditor()
 	}
 }
@@ -541,7 +548,8 @@ set_common_elements :: proc() {
 	style.TabBorderSize = 1.0
 }
 
-set_light_theme :: proc() {
+set_light_theme :: proc(app_state: ^AppState) {
+	app_state.theme = .Light
 	set_common_elements()
 	set_imnodes_light_theme()
 	style := ig.GetStyle()
@@ -620,7 +628,8 @@ set_light_theme :: proc() {
 	style.Colors[ig.Col.ModalWindowDimBg]  = {0.00, 0.00, 0.00, 0.50}
 }
 
-set_dark_theme :: proc() {
+set_dark_theme :: proc(app_state: ^AppState) {
+	app_state.theme = .Dark
 	set_common_elements()
 	set_imnodes_dark_theme()
 	style := ig.GetStyle()
