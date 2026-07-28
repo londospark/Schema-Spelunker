@@ -13,9 +13,12 @@ Legend: `[S/M/L]` = size · `[P0/P1/P2]` = priority · `[cat]` = category
 - [ ] `[S]` `[P2]` `[binding]` Bind `sqlite3_errmsg` for human-readable error messages
 - [x] `[S]` `[P1]` `[data]` Arena allocator for schema data lifetime — load once,
       free on reload (implemented via `Schema.arena` + `Dynamic_Arena`)
-- [ ] `[M]` `[P1]` `[data]` Second pass to resolve FK `to_table`/`to_column` strings
-      to `GlobalColumnIndex` after all tables are loaded — then remove temporary
-      `from_column` string field from `ForeignKey`
+- [x] `[M]` `[P1]` `[data]` Second pass to resolve FK `to_table`/`to_column` strings
+      to `GlobalColumnIndex` after all tables are loaded
+- [ ] `[S]` `[P1]` `[data]` Remove temporary `from_column`/`to_table`/`to_column`
+      string fields from `ForeignKey` now that index resolution is in place
+- [ ] `[S]` `[P1]` `[data]` Remove `resolved_to_index` bool from `ForeignKey` once
+      display code checks resolution (currently set but never read)
 - [x] `[S]` `[P2]` `[data]` Read column properties (`type`, `not_null`, `pk`) from
       `pragma_table_info`
 - [x] `[S]` `[P2]` `[data]` Remove `@Todo` on `database_name` — currently cloned
@@ -105,7 +108,7 @@ disk.  See `docs/THEME_MIGRATION.md` for detailed plan.
       `[diagram_grid]`, `[accent]`, `[layout]` sections
 - [x] `[M]` `[P1]` `[theme]` Step 2: Create theme loader — `ThemeData` struct,
       `parse_ssTheme` parser, `apply_theme` writer, hex/axis-pair helpers.
-      Inlined in `main.odin` (no separate file).
+      Originally inlined in `main.odin`, later extracted to `style.odin`.
 - [x] `[S]` `[P2]` `[theme]` Step 3: Remove `set_common_elements` (layout
       values now served as defaults in `ThemeData`)
 - [x] `[S]` `[P2]` `[theme]` Step 4: Remove `_imnodes_light_theme` and
@@ -152,6 +155,9 @@ disk.  See `docs/THEME_MIGRATION.md` for detailed plan.
       to match `build.bat` semantics
 - [ ] `[S]` `[P2]` `[build]` Replace hardcoded two-position arg checks in
       `build.bat` and `build.sh` with a `shift` loop for arbitrary flag ordering
+- [x] `[S]` `[P2]` `[project]` Add huge_seed tool (`test/huge_seed.odin`) for
+      generating large test databases (2000 tables, random FKs). Build via
+      `seed.bat huge`.
 - [x] `[S]` `[P2]` `[project]` Update "Current state" section in AGENTS.md
       (was still saying "empty dockspace")
 
@@ -177,5 +183,7 @@ disk.  See `docs/THEME_MIGRATION.md` for detailed plan.
 - [x] `[S]` `[P2]` `[project]` Update AGENTS.md "Current state" section —
       (was still saying "empty dockspace" and "demo window removed")
 - [x] `[S]` `[P3]` `[gui]` Bump `BUF_LEN` from 1024 to 4096 for long Windows paths
+- [x] `[M]` `[P2]` `[refactor]` Extract theme/styling code from `main.odin` into
+      `style.odin` (~440 lines moved)
 - [ ] `[S]` `[P2]` `[refactor]` Extract `rebuild_directory_listing` and
       `render_file_dialog` from `show_file_dialog` to reduce nesting depth
