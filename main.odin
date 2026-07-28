@@ -818,9 +818,15 @@ hex_digit :: proc(c: u8) -> u8 {
 }
 
 hex_to_vec4 :: proc(s: string) -> (col: ig.Vec4, ok: bool) {
-	if len(s) == 0 || s[0] != '#' { return {}, false }
+	if len(s) == 0 || s[0] != '#' {
+		fmt.eprintfln("theme parse: bad colour \"%s\"", s)
+		return {}, false
+	}
 	hex := s[1:]
-	if len(hex) != 6 && len(hex) != 8 { return {}, false }
+	if len(hex) != 6 && len(hex) != 8 {
+		fmt.eprintfln("theme parse: bad colour \"%s\" (expected #RRGGBB or #RRGGBBAA)", s)
+		return {}, false
+	}
 	r := f32(hex_digit(hex[0]) << 4 | hex_digit(hex[1])) / 255.0
 	g := f32(hex_digit(hex[2]) << 4 | hex_digit(hex[3])) / 255.0
 	b := f32(hex_digit(hex[4]) << 4 | hex_digit(hex[5])) / 255.0
@@ -833,14 +839,6 @@ hex_to_vec4 :: proc(s: string) -> (col: ig.Vec4, ok: bool) {
 
 vec4_with_alpha :: proc(c: ig.Vec4, a: f32) -> ig.Vec4 {
 	return {c.x, c.y, c.z, a}
-}
-
-imn_col_v4 :: proc(c: ig.Vec4) -> u32 {
-	ri := u8(clamp(c.x, 0.0, 1.0) * 255.0)
-	gi := u8(clamp(c.y, 0.0, 1.0) * 255.0)
-	bi := u8(clamp(c.z, 0.0, 1.0) * 255.0)
-	ai := u8(clamp(c.w, 0.0, 1.0) * 255.0)
-	return u32(ri) | (u32(gi) << 8) | (u32(bi) << 16) | (u32(ai) << 24)
 }
 
 default_theme_data :: proc() -> ThemeData {
@@ -924,8 +922,8 @@ parse_ssTheme :: proc(filename: string, allocator: mem.Allocator) -> (ThemeData,
 		raw_val := strings.trim_space(trimmed[eq + 1:])
 
 		comment_start := -1
-		IN_QUOTES := raw_val[0] == '"'
-		if !IN_QUOTES {
+		in_quotes := raw_val[0] == '"'
+		if !in_quotes {
 			comment_start = strings.index_byte(raw_val, '#')
 		} else {
 			close_quote := strings.index_byte(raw_val[1:], '"')
@@ -1153,27 +1151,43 @@ apply_theme :: proc(data: ThemeData) {
 	style.Colors[ig.Col.TabDimmedSelected] = data.bg_window
 
 	// ImNodes
+	imn.StyleColorsLight()
 	imn_style := imn.GetStyle()
-	imn_style.colors[imn.Col.NodeBackground]             = imn_col_v4(data.card_bg)
-	imn_style.colors[imn.Col.NodeBackgroundHovered]      = imn_col_v4(data.card_bg_hovered)
-	imn_style.colors[imn.Col.NodeBackgroundSelected]     = imn_col_v4(data.card_bg_selected)
-	imn_style.colors[imn.Col.NodeOutline]                = imn_col_v4(data.card_outline)
+	v := data.card_bg
+	imn_style.colors[imn.Col.NodeBackground]             = imn_col(v.x, v.y, v.z, v.w)
+	v = data.card_bg_hovered
+	imn_style.colors[imn.Col.NodeBackgroundHovered]      = imn_col(v.x, v.y, v.z, v.w)
+	v = data.card_bg_selected
+	imn_style.colors[imn.Col.NodeBackgroundSelected]     = imn_col(v.x, v.y, v.z, v.w)
+	v = data.card_outline
+	imn_style.colors[imn.Col.NodeOutline]                = imn_col(v.x, v.y, v.z, v.w)
 
-	imn_style.colors[imn.Col.TitleBar]                   = imn_col_v4(data.title_bg)
-	imn_style.colors[imn.Col.TitleBarHovered]            = imn_col_v4(data.title_bg_focus)
-	imn_style.colors[imn.Col.TitleBarSelected]           = imn_col_v4(vec4_with_alpha(data.title_bg_focus, 1.0))
+	v = data.title_bg
+	imn_style.colors[imn.Col.TitleBar]                   = imn_col(v.x, v.y, v.z, v.w)
+	v = data.title_bg_focus
+	imn_style.colors[imn.Col.TitleBarHovered]            = imn_col(v.x, v.y, v.z, v.w)
+	imn_style.colors[imn.Col.TitleBarSelected]           = imn_col(v.x, v.y, v.z, v.w)
 
-	imn_style.colors[imn.Col.Link]                       = imn_col_v4(accent)
-	imn_style.colors[imn.Col.LinkHovered]                = imn_col_v4(vec4_with_alpha(accent, 0.85))
-	imn_style.colors[imn.Col.LinkSelected]               = imn_col_v4(vec4_with_alpha(accent, 0.72))
-	imn_style.colors[imn.Col.Pin]                        = imn_col_v4(accent)
-	imn_style.colors[imn.Col.PinHovered]                 = imn_col_v4(vec4_with_alpha(accent, 0.85))
-	imn_style.colors[imn.Col.BoxSelector]                = imn_col_v4(vec4_with_alpha(accent, 0.30))
-	imn_style.colors[imn.Col.BoxSelectorOutline]         = imn_col_v4(vec4_with_alpha(accent, 0.80))
+	v = accent
+	imn_style.colors[imn.Col.Link]                       = imn_col(v.x, v.y, v.z, v.w)
+	v = vec4_with_alpha(accent, 0.85)
+	imn_style.colors[imn.Col.LinkHovered]                = imn_col(v.x, v.y, v.z, v.w)
+	v = vec4_with_alpha(accent, 0.72)
+	imn_style.colors[imn.Col.LinkSelected]               = imn_col(v.x, v.y, v.z, v.w)
+	imn_style.colors[imn.Col.Pin]                        = imn_col(accent.x, accent.y, accent.z, accent.w)
+	v = vec4_with_alpha(accent, 0.85)
+	imn_style.colors[imn.Col.PinHovered]                 = imn_col(v.x, v.y, v.z, v.w)
+	v = vec4_with_alpha(accent, 0.30)
+	imn_style.colors[imn.Col.BoxSelector]                = imn_col(v.x, v.y, v.z, v.w)
+	v = vec4_with_alpha(accent, 0.80)
+	imn_style.colors[imn.Col.BoxSelectorOutline]         = imn_col(v.x, v.y, v.z, v.w)
 
-	imn_style.colors[imn.Col.GridBackground]             = imn_col_v4(data.grid_bg)
-	imn_style.colors[imn.Col.GridLine]                   = imn_col_v4(data.grid_line)
-	imn_style.colors[imn.Col.GridLinePrimary]            = imn_col_v4(data.border_main)
+	v = data.grid_bg
+	imn_style.colors[imn.Col.GridBackground]             = imn_col(v.x, v.y, v.z, v.w)
+	v = data.grid_line
+	imn_style.colors[imn.Col.GridLine]                   = imn_col(v.x, v.y, v.z, v.w)
+	v = data.border_main
+	imn_style.colors[imn.Col.GridLinePrimary]            = imn_col(v.x, v.y, v.z, v.w)
 }
 
 init_schema :: proc(schema: ^Schema) {
