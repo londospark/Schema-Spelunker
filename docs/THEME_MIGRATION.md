@@ -69,16 +69,19 @@ since it is now only needed during theme application.
 
 ## What is added
 
-### `theme_loader.odin` (new file)
+### Theme loader code
 
-~120 lines containing:
+~200 lines in `main.odin` containing:
 
 - `ThemeData` — the full colour + layout struct (application-domain names)
-- `load_theme` — parses a `.ssTheme` file into `ThemeData`
+- `parse_ssTheme` — parses a `.ssTheme` file into `ThemeData`
 - `apply_theme` — writes `ThemeData` into `ig.GetStyle()` and `imn.GetStyle()`
 - `discover_themes` — scans `themes/*.ssTheme`, returns `[]ThemeInfo`
-- `parse_colour` — hex `#RRGGBB` / `#RRGGBBAA` parser
+- `hex_to_vec4` — hex `#RRGGBB` / `#RRGGBBAA` parser
 - `parse_axis_pair` — `horizontal: X, vertical: Y` parser
+
+Inlined in `main.odin` rather than a separate file — the project prefers
+single-file organisation (see AGENTS.md: gingerBill / Casey Muratori style).
 
 ### `themes/` directory
 

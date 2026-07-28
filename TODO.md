@@ -103,9 +103,9 @@ disk.  See `docs/THEME_MIGRATION.md` for detailed plan.
       translating current colour assignments into `[text]`, `[background]`,
       `[controls]`, `[title_bar]`, `[table_card]`, `[border]`,
       `[diagram_grid]`, `[accent]`, `[layout]` sections
-- [ ] `[M]` `[P1]` `[theme]` Step 2: Create `theme_loader.odin` — `ThemeData`
-      struct, `load_theme` parser, `apply_theme` writer, `discover_themes`
-      scanner, `parse_colour` / `parse_axis_pair` helpers
+- [x] `[M]` `[P1]` `[theme]` Step 2: Create theme loader — `ThemeData` struct,
+      `parse_ssTheme` parser, `apply_theme` writer, hex/axis-pair helpers.
+      Inlined in `main.odin` (no separate file).
 - [ ] `[S]` `[P2]` `[theme]` Step 3: Remove `set_common_elements` (layout
       values now served as defaults in `ThemeData`)
 - [ ] `[S]` `[P2]` `[theme]` Step 4: Remove `_imnodes_light_theme` and

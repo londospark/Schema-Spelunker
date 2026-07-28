@@ -5,6 +5,7 @@ import "core:mem"
 import "core:strings"
 import "core:os"
 import "core:time"
+import "core:strconv"
 import sqlite "vendor/sqlite3"
 import sdl "vendor:sdl3"
 import ig "vendor/imgui"
@@ -159,7 +160,10 @@ make_imgui_app :: proc() {
 
 	imn.CreateContext()
 	defer imn.DestroyContext(nil)
-	set_theme(&app_state, .Light)
+	if theme_data, theme_ok := parse_ssTheme("themes/paper_and_ink_light.ssTheme", context.temp_allocator); theme_ok {
+		apply_theme(theme_data)
+	}
+	app_state.theme = .Light
 
 	io := ig.GetIO()
 	font_filename: cstring = "Roboto.ttf"
@@ -274,8 +278,22 @@ make_imgui_app :: proc() {
 					ig.EndMenu()
 				}
 				if ig.BeginMenu("Theme") {
-					if ig.MenuItem("Light") do set_theme(&app_state, .Light)
-					if ig.MenuItem("Dark")  do set_theme(&app_state, .Dark)
+				if ig.MenuItem("Light (file)") {
+					if theme_data, theme_ok := parse_ssTheme("themes/paper_and_ink_light.ssTheme", context.temp_allocator); theme_ok {
+						apply_theme(theme_data)
+					}
+				}
+				if ig.MenuItem("Light (hardcoded)") {
+					set_theme(&app_state, .Light)
+				}
+				if ig.MenuItem("Dark (file)") {
+					if theme_data, theme_ok := parse_ssTheme("themes/paper_and_ink_dark.ssTheme", context.temp_allocator); theme_ok {
+						apply_theme(theme_data)
+					}
+				}
+				if ig.MenuItem("Dark (hardcoded)") {
+					set_theme(&app_state, .Dark)
+				}
 					ig.EndMenu()
 				}
 				ig.EndMainMenuBar()
@@ -728,6 +746,434 @@ set_theme :: proc(app_state: ^AppState, theme: Theme) {
 
 		style.Colors[ig.Col.ModalWindowDimBg]  = {0.00, 0.00, 0.00, 0.60}
 	}
+}
+
+// --- Theme loader (Step 2: file-based .ssTheme) ---
+
+ThemeData :: struct {
+	name: string,
+
+	// [text]
+	text_main:     ig.Vec4,  // 0.12, 0.12, 0.12, 1.00 → #1F1F1F
+	text_muted:    ig.Vec4,  // #8C8C8C
+
+	// [background]
+	bg_window:     ig.Vec4,  // #F5F5F0
+	bg_child:      ig.Vec4,  // #F5F5F0
+	bg_popup:      ig.Vec4,  // #FFFFFF
+
+	// [controls]
+	ctrl_frame:         ig.Vec4,  // #FFFFFF
+	ctrl_frame_hover:   ig.Vec4,  // #E5EAF2
+	ctrl_frame_active:  ig.Vec4,  // #D9E0EB
+
+	// [title_bar]
+	title_bg:         ig.Vec4,  // #EBEBE6
+	title_bg_focus:   ig.Vec4,  // #E0E0DB
+	title_bg_faded:   ig.Vec4,  // #EBEBE6 with A=0.75
+
+	// [table_card]
+	card_bg:          ig.Vec4,  // #FFFFFF
+	card_bg_hovered:  ig.Vec4,  // #F9F9F2
+	card_bg_selected: ig.Vec4,  // #F4F4ED
+	card_outline:     ig.Vec4,  // #BFBFB8
+
+	// [border]
+	border_main:   ig.Vec4,  // #BFBFB8
+	border_subtle: ig.Vec4,  // #D9D9D1
+
+	// [diagram_grid]
+	grid_bg:   ig.Vec4,  // #F5F5F0
+	grid_line: ig.Vec4,  // #D9D9D1
+
+	// [accent]
+	accent_colour: ig.Vec4,  // #2C5796
+
+	// [layout]
+	corner_rounding:      f32,
+	scrollbar_size:       f32,
+	grab_min_size:        f32,
+	item_spacing_x:       f32,
+	item_spacing_y:       f32,
+	item_inner_spacing_x: f32,
+	item_inner_spacing_y: f32,
+	window_padding_x:     f32,
+	window_padding_y:     f32,
+	frame_padding_x:      f32,
+	frame_padding_y:      f32,
+	cell_padding_x:       f32,
+	cell_padding_y:       f32,
+	border_width:         f32,
+	frame_border_width:   f32,
+	tab_border_width:     f32,
+}
+
+hex_digit :: proc(c: u8) -> u8 {
+	switch {
+	case '0' <= c && c <= '9': return c - '0'
+	case 'a' <= c && c <= 'f': return c - 'a' + 10
+	case 'A' <= c && c <= 'F': return c - 'A' + 10
+	}
+	return 0
+}
+
+hex_to_vec4 :: proc(s: string) -> (col: ig.Vec4, ok: bool) {
+	if len(s) == 0 || s[0] != '#' { return {}, false }
+	hex := s[1:]
+	if len(hex) != 6 && len(hex) != 8 { return {}, false }
+	r := f32(hex_digit(hex[0]) << 4 | hex_digit(hex[1])) / 255.0
+	g := f32(hex_digit(hex[2]) << 4 | hex_digit(hex[3])) / 255.0
+	b := f32(hex_digit(hex[4]) << 4 | hex_digit(hex[5])) / 255.0
+	a := f32(1.0)
+	if len(hex) == 8 {
+		a = f32(hex_digit(hex[6]) << 4 | hex_digit(hex[7])) / 255.0
+	}
+	return {r, g, b, a}, true
+}
+
+vec4_with_alpha :: proc(c: ig.Vec4, a: f32) -> ig.Vec4 {
+	return {c.x, c.y, c.z, a}
+}
+
+imn_col_v4 :: proc(c: ig.Vec4) -> u32 {
+	ri := u8(clamp(c.x, 0.0, 1.0) * 255.0)
+	gi := u8(clamp(c.y, 0.0, 1.0) * 255.0)
+	bi := u8(clamp(c.z, 0.0, 1.0) * 255.0)
+	ai := u8(clamp(c.w, 0.0, 1.0) * 255.0)
+	return u32(ri) | (u32(gi) << 8) | (u32(bi) << 16) | (u32(ai) << 24)
+}
+
+default_theme_data :: proc() -> ThemeData {
+	return {
+		name = "Default",
+
+		text_main       = {0.12, 0.12, 0.12, 1.00},
+		text_muted      = {0.55, 0.55, 0.55, 1.00},
+
+		bg_window       = {0.96, 0.96, 0.94, 1.00},
+		bg_child        = {0.96, 0.96, 0.94, 1.00},
+		bg_popup        = {1.00, 1.00, 1.00, 1.00},
+
+		ctrl_frame         = {1.00, 1.00, 1.00, 1.00},
+		ctrl_frame_hover   = {0.90, 0.92, 0.95, 1.00},
+		ctrl_frame_active  = {0.85, 0.88, 0.92, 1.00},
+
+		title_bg         = {0.92, 0.92, 0.90, 1.00},
+		title_bg_focus   = {0.88, 0.88, 0.86, 1.00},
+		title_bg_faded   = {0.92, 0.92, 0.90, 0.75},
+
+		card_bg          = {1.00, 1.00, 1.00, 1.00},
+		card_bg_hovered  = {0.98, 0.98, 0.95, 1.00},
+		card_bg_selected = {0.96, 0.96, 0.93, 1.00},
+		card_outline     = {0.75, 0.75, 0.72, 1.00},
+
+		border_main   = {0.75, 0.75, 0.72, 1.00},
+		border_subtle = {0.85, 0.85, 0.82, 1.00},
+
+		grid_bg   = {0.96, 0.96, 0.94, 1.00},
+		grid_line = {0.85, 0.85, 0.82, 1.00},
+
+		accent_colour = {0.17, 0.34, 0.59, 1.00},
+
+		corner_rounding      = 2.0,
+		scrollbar_size       = 14.0,
+		grab_min_size        = 12.0,
+		item_spacing_x       = 8.0,
+		item_spacing_y       = 6.0,
+		item_inner_spacing_x = 6.0,
+		item_inner_spacing_y = 4.0,
+		window_padding_x     = 12.0,
+		window_padding_y     = 12.0,
+		frame_padding_x      = 6.0,
+		frame_padding_y      = 4.0,
+		cell_padding_x       = 6.0,
+		cell_padding_y       = 4.0,
+		border_width         = 1.0,
+		frame_border_width   = 1.0,
+		tab_border_width     = 1.0,
+	}
+}
+
+parse_ssTheme :: proc(filename: string, allocator: mem.Allocator) -> (ThemeData, bool) {
+	data := default_theme_data()
+
+	file_bytes, err := os.read_entire_file(filename, allocator)
+	if err != os.ERROR_NONE { return data, false }
+	defer delete(file_bytes, allocator)
+
+	content := string(file_bytes)
+	current_section: string
+
+	for line in strings.split_lines_iterator(&content) {
+		trimmed := strings.trim_space(line)
+		if len(trimmed) == 0 { continue }
+		if trimmed[0] == '#' { continue }
+
+		if trimmed[0] == '[' {
+			close := strings.index_byte(trimmed, ']')
+			if close > 1 {
+				current_section = strings.trim_space(trimmed[1:close])
+			}
+			continue
+		}
+
+		eq := strings.index_byte(trimmed, '=')
+		if eq < 0 { continue }
+
+		key := strings.trim_space(trimmed[:eq])
+		raw_val := strings.trim_space(trimmed[eq + 1:])
+
+		comment_start := -1
+		IN_QUOTES := raw_val[0] == '"'
+		if !IN_QUOTES {
+			comment_start = strings.index_byte(raw_val, '#')
+		} else {
+			close_quote := strings.index_byte(raw_val[1:], '"')
+			if close_quote >= 0 {
+				after := strings.trim_space(raw_val[close_quote + 2:])
+				if len(after) > 0 && after[0] == '#' {
+					comment_start = close_quote + 2
+				}
+			}
+		}
+		if comment_start >= 0 {
+			raw_val = strings.trim_space(raw_val[:comment_start])
+		}
+
+		if len(raw_val) >= 2 && raw_val[0] == '"' {
+			raw_val = raw_val[1:len(raw_val) - 1]
+		}
+
+		// Parse value based on section + key
+		switch current_section {
+		case "":
+			switch key {
+			case "name": data.name = strings.clone(raw_val, allocator)
+			}
+		case "text":
+			switch key {
+			case "main":  if v, v_ok := hex_to_vec4(raw_val); v_ok { data.text_main = v }
+			case "muted": if v, v_ok := hex_to_vec4(raw_val); v_ok { data.text_muted = v }
+			}
+		case "background":
+			switch key {
+			case "window": if v, v_ok := hex_to_vec4(raw_val); v_ok { data.bg_window = v }
+			case "child":  if v, v_ok := hex_to_vec4(raw_val); v_ok { data.bg_child = v }
+			case "popup":  if v, v_ok := hex_to_vec4(raw_val); v_ok { data.bg_popup = v }
+			}
+		case "controls":
+			switch key {
+			case "frame":        if v, v_ok := hex_to_vec4(raw_val); v_ok { data.ctrl_frame = v }
+			case "frame_hover":   if v, v_ok := hex_to_vec4(raw_val); v_ok { data.ctrl_frame_hover = v }
+			case "frame_active":  if v, v_ok := hex_to_vec4(raw_val); v_ok { data.ctrl_frame_active = v }
+			}
+		case "title_bar":
+			switch key {
+			case "background":       if v, v_ok := hex_to_vec4(raw_val); v_ok { data.title_bg = v }
+			case "background_focus": if v, v_ok := hex_to_vec4(raw_val); v_ok { data.title_bg_focus = v }
+			case "background_faded": if v, v_ok := hex_to_vec4(raw_val); v_ok { data.title_bg_faded = v }
+			}
+		case "table_card":
+			switch key {
+			case "background":          if v, v_ok := hex_to_vec4(raw_val); v_ok { data.card_bg = v }
+			case "background_hovered":   if v, v_ok := hex_to_vec4(raw_val); v_ok { data.card_bg_hovered = v }
+			case "background_selected":  if v, v_ok := hex_to_vec4(raw_val); v_ok { data.card_bg_selected = v }
+			case "outline":             if v, v_ok := hex_to_vec4(raw_val); v_ok { data.card_outline = v }
+			}
+		case "border":
+			switch key {
+			case "main":   if v, v_ok := hex_to_vec4(raw_val); v_ok { data.border_main = v }
+			case "subtle": if v, v_ok := hex_to_vec4(raw_val); v_ok { data.border_subtle = v }
+			}
+		case "diagram_grid":
+			switch key {
+			case "background": if v, v_ok := hex_to_vec4(raw_val); v_ok { data.grid_bg = v }
+			case "line":       if v, v_ok := hex_to_vec4(raw_val); v_ok { data.grid_line = v }
+			}
+		case "accent":
+			switch key {
+			case "colour": if v, v_ok := hex_to_vec4(raw_val); v_ok { data.accent_colour = v }
+			}
+		case "layout":
+			switch key {
+			case "corner_rounding":
+				if v, v_ok := strconv.parse_f32(raw_val); v_ok { data.corner_rounding = v }
+			case "scrollbar_size":
+				if v, v_ok := strconv.parse_f32(raw_val); v_ok { data.scrollbar_size = v }
+			case "grab_min_size":
+				if v, v_ok := strconv.parse_f32(raw_val); v_ok { data.grab_min_size = v }
+			case "item_spacing":
+				if x, y, p_ok := parse_axis_pair(raw_val); p_ok {
+					data.item_spacing_x = f32(x)
+					data.item_spacing_y = f32(y)
+				}
+			case "item_inner_spacing":
+				if x, y, p_ok := parse_axis_pair(raw_val); p_ok {
+					data.item_inner_spacing_x = f32(x)
+					data.item_inner_spacing_y = f32(y)
+				}
+			case "window_padding":
+				if x, y, p_ok := parse_axis_pair(raw_val); p_ok {
+					data.window_padding_x = f32(x)
+					data.window_padding_y = f32(y)
+				}
+			case "frame_padding":
+				if x, y, p_ok := parse_axis_pair(raw_val); p_ok {
+					data.frame_padding_x = f32(x)
+					data.frame_padding_y = f32(y)
+				}
+			case "cell_padding":
+				if x, y, p_ok := parse_axis_pair(raw_val); p_ok {
+					data.cell_padding_x = f32(x)
+					data.cell_padding_y = f32(y)
+				}
+			case "border_width":
+				if v, v_ok := strconv.parse_f32(raw_val); v_ok { data.border_width = v }
+			case "frame_border_width":
+				if v, v_ok := strconv.parse_f32(raw_val); v_ok { data.frame_border_width = v }
+			case "tab_border_width":
+				if v, v_ok := strconv.parse_f32(raw_val); v_ok { data.tab_border_width = v }
+			}
+		}
+	}
+
+	return data, true
+}
+
+parse_axis_pair :: proc(s: string) -> (x, y: int, ok: bool) {
+	parts := strings.split(s, ",")
+	defer delete(parts)
+	found_x, found_y := false, false
+	for part in parts {
+		trimmed := strings.trim_space(part)
+		colon := strings.index_byte(trimmed, ':')
+		if colon < 0 { continue }
+		key := strings.trim_space(trimmed[:colon])
+		val_str := strings.trim_space(trimmed[colon + 1:])
+		val, v_ok := strconv.parse_i64(val_str)
+		if !v_ok { continue }
+		switch key {
+		case "horizontal": x = int(val); found_x = true
+		case "vertical":   y = int(val); found_y = true
+		}
+	}
+	return x, y, found_x && found_y
+}
+
+apply_theme :: proc(data: ThemeData) {
+	accent := data.accent_colour
+	style := ig.GetStyle()
+
+	// Layout
+	style.WindowPadding        = {data.window_padding_x, data.window_padding_y}
+	style.FramePadding         = {data.frame_padding_x, data.frame_padding_y}
+	style.CellPadding          = {data.cell_padding_x, data.cell_padding_y}
+	style.ItemSpacing          = {data.item_spacing_x, data.item_spacing_y}
+	style.ItemInnerSpacing     = {data.item_inner_spacing_x, data.item_inner_spacing_y}
+	style.ScrollbarSize        = data.scrollbar_size
+	style.GrabMinSize          = data.grab_min_size
+	style.WindowRounding       = data.corner_rounding
+	style.ChildRounding        = data.corner_rounding
+	style.FrameRounding        = data.corner_rounding
+	style.PopupRounding        = data.corner_rounding
+	style.ScrollbarRounding    = 12.0
+	style.GrabRounding         = data.corner_rounding
+	style.TabRounding          = data.corner_rounding
+	style.WindowBorderSize     = data.border_width
+	style.ChildBorderSize      = data.border_width
+	style.PopupBorderSize       = data.border_width
+	style.FrameBorderSize      = data.frame_border_width
+	style.TabBorderSize        = data.tab_border_width
+
+	// ImGui colours
+	// Text
+	style.Colors[ig.Col.Text]         = data.text_main
+	style.Colors[ig.Col.TextDisabled] = data.text_muted
+
+	// Backgrounds
+	style.Colors[ig.Col.WindowBg]         = data.bg_window
+	style.Colors[ig.Col.ChildBg]          = data.bg_child
+	style.Colors[ig.Col.PopupBg]          = data.bg_popup
+	style.Colors[ig.Col.MenuBarBg]        = data.title_bg
+	style.Colors[ig.Col.DockingEmptyBg]   = data.bg_window
+
+	// Borders
+	style.Colors[ig.Col.Border]            = data.border_main
+	style.Colors[ig.Col.BorderShadow]      = {0, 0, 0, 0}
+	style.Colors[ig.Col.Separator]         = data.border_subtle
+	style.Colors[ig.Col.TableBorderStrong] = data.border_main
+	style.Colors[ig.Col.TableBorderLight]  = data.border_subtle
+
+	// Controls
+	style.Colors[ig.Col.FrameBg]         = data.ctrl_frame
+	style.Colors[ig.Col.FrameBgHovered]  = data.ctrl_frame_hover
+	style.Colors[ig.Col.FrameBgActive]   = data.ctrl_frame_active
+
+	// Title bars
+	style.Colors[ig.Col.TitleBg]          = data.title_bg
+	style.Colors[ig.Col.TitleBgActive]   = data.title_bg_focus
+	style.Colors[ig.Col.TitleBgCollapsed] = data.title_bg_faded
+
+	// Accent-derived colours (alpha table from format spec)
+	style.Colors[ig.Col.CheckMark]         = accent
+	style.Colors[ig.Col.SliderGrab]        = vec4_with_alpha(accent, 0.70)
+	style.Colors[ig.Col.SliderGrabActive]  = accent
+	style.Colors[ig.Col.Button]            = vec4_with_alpha(accent, 0.08)
+	style.Colors[ig.Col.ButtonHovered]     = vec4_with_alpha(accent, 0.20)
+	style.Colors[ig.Col.ButtonActive]      = vec4_with_alpha(accent, 0.35)
+	style.Colors[ig.Col.Header]            = vec4_with_alpha(accent, 0.12)
+	style.Colors[ig.Col.HeaderHovered]     = vec4_with_alpha(accent, 0.25)
+	style.Colors[ig.Col.HeaderActive]      = vec4_with_alpha(accent, 0.40)
+	style.Colors[ig.Col.SeparatorHovered]  = vec4_with_alpha(accent, 0.78)
+	style.Colors[ig.Col.SeparatorActive]   = accent
+	style.Colors[ig.Col.PlotLines]         = accent
+	style.Colors[ig.Col.PlotHistogram]     = accent
+	style.Colors[ig.Col.TextSelectedBg]    = vec4_with_alpha(accent, 0.25)
+	style.Colors[ig.Col.DragDropTarget]    = vec4_with_alpha(accent, 0.90)
+	style.Colors[ig.Col.NavCursor]         = accent
+	style.Colors[ig.Col.DockingPreview]    = vec4_with_alpha(accent, 0.40)
+	style.Colors[ig.Col.ModalWindowDimBg]  = {0, 0, 0, 0.50}
+
+	// Scrollbars
+	style.Colors[ig.Col.ScrollbarBg]          = data.bg_window
+	style.Colors[ig.Col.ScrollbarGrab]        = data.border_subtle
+	style.Colors[ig.Col.ScrollbarGrabHovered] = vec4_with_alpha(data.border_main, 0.87)
+	style.Colors[ig.Col.ScrollbarGrabActive]  = vec4_with_alpha(data.border_main, 0.75)
+
+	// Tables
+	style.Colors[ig.Col.TableHeaderBg]     = data.title_bg
+	style.Colors[ig.Col.TableRowBg]        = {0, 0, 0, 0}
+	style.Colors[ig.Col.TableRowBgAlt]     = {0, 0, 0, 0.03}
+
+	// Tabs
+	style.Colors[ig.Col.Tab]               = data.title_bg
+	style.Colors[ig.Col.TabHovered]        = data.ctrl_frame
+	style.Colors[ig.Col.TabSelected]       = data.ctrl_frame
+	style.Colors[ig.Col.TabDimmed]         = data.title_bg
+	style.Colors[ig.Col.TabDimmedSelected] = data.bg_window
+
+	// ImNodes
+	imn_style := imn.GetStyle()
+	imn_style.colors[imn.Col.NodeBackground]             = imn_col_v4(data.card_bg)
+	imn_style.colors[imn.Col.NodeBackgroundHovered]      = imn_col_v4(data.card_bg_hovered)
+	imn_style.colors[imn.Col.NodeBackgroundSelected]     = imn_col_v4(data.card_bg_selected)
+	imn_style.colors[imn.Col.NodeOutline]                = imn_col_v4(data.card_outline)
+
+	imn_style.colors[imn.Col.TitleBar]                   = imn_col_v4(data.title_bg)
+	imn_style.colors[imn.Col.TitleBarHovered]            = imn_col_v4(data.title_bg_focus)
+	imn_style.colors[imn.Col.TitleBarSelected]           = imn_col_v4(vec4_with_alpha(data.title_bg_focus, 1.0))
+
+	imn_style.colors[imn.Col.Link]                       = imn_col_v4(accent)
+	imn_style.colors[imn.Col.LinkHovered]                = imn_col_v4(vec4_with_alpha(accent, 0.85))
+	imn_style.colors[imn.Col.LinkSelected]               = imn_col_v4(vec4_with_alpha(accent, 0.72))
+	imn_style.colors[imn.Col.Pin]                        = imn_col_v4(accent)
+	imn_style.colors[imn.Col.PinHovered]                 = imn_col_v4(vec4_with_alpha(accent, 0.85))
+	imn_style.colors[imn.Col.BoxSelector]                = imn_col_v4(vec4_with_alpha(accent, 0.30))
+	imn_style.colors[imn.Col.BoxSelectorOutline]         = imn_col_v4(vec4_with_alpha(accent, 0.80))
+
+	imn_style.colors[imn.Col.GridBackground]             = imn_col_v4(data.grid_bg)
+	imn_style.colors[imn.Col.GridLine]                   = imn_col_v4(data.grid_line)
+	imn_style.colors[imn.Col.GridLinePrimary]            = imn_col_v4(data.border_main)
 }
 
 init_schema :: proc(schema: ^Schema) {
