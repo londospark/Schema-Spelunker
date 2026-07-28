@@ -260,6 +260,10 @@ make_imgui_app :: proc() {
 					mem.dynamic_arena_destroy(&app_state.schema.arena)
 					app_state.schema_dirty = false
 					app_state.schema = schema
+
+					for fk in schema.foreign_keys {
+						fmt.printfln("%s (%d) ==> %s.%s (%d)", fk.from_column, fk.from, fk.to_table, fk.to_column, fk.to)
+					}
 				}
 			}
 
@@ -986,10 +990,14 @@ extract_database_information :: proc(filename: string) -> (schema: Schema, error
 
 	old_allocator := context.allocator
 	context.allocator = schema.allocator
+	defer context.allocator = old_allocator
+
 	schema.database_name = strings.clone(filename)
 
 	current_column: GlobalColumnIndex = 0
 	current_fk: GlobalForeignKeyIndex = 0
+
+	col_indices := make(map[[2]string]GlobalColumnIndex, context.temp_allocator)
 
 	for sqlite.step(table_stmt) == .ROW {
 		table: Table
@@ -1010,6 +1018,7 @@ extract_database_information :: proc(filename: string) -> (schema: Schema, error
 			column.composite_key_index = sqlite.column_u32(column_stmt, 5)
 
 			append(&schema.columns, column)
+			col_indices[[2]string{table.name, column.name}] = current_column
 			current_column += 1
 		}
 
@@ -1027,9 +1036,15 @@ extract_database_information :: proc(filename: string) -> (schema: Schema, error
 			}
 
 			fk: ForeignKey
+			ok: bool
 			fk.from_column = sqlite.column_string(fk_stmt, 3)
 			fk.to_table = sqlite.column_string(fk_stmt, 2)
 			fk.to_column = sqlite.column_string(fk_stmt, 4)
+			fk.from, ok = col_indices[[2]string{table.name, fk.from_column}]
+
+			if !ok {
+				fmt.eprintfln("No column index found for %s.%s", table.name, fk.from_column)
+			}
 
 			append(&schema.foreign_keys, fk)
 			current_fk += 1
@@ -1040,7 +1055,10 @@ extract_database_information :: proc(filename: string) -> (schema: Schema, error
 		append(&schema.tables, table)
 	}
 
-	context.allocator = old_allocator
+	for &fk in schema.foreign_keys {
+		fk.to = col_indices[[2]string{fk.to_table, fk.to_column}] or_continue
+		fk.resolved_to_index = true
+	}
 
 	return schema, .OK
 }
