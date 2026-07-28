@@ -13,7 +13,7 @@ Legend: `[S/M/L]` = size · `[P0/P1/P2]` = priority · `[cat]` = category
 - [ ] `[S]` `[P2]` `[binding]` Bind `sqlite3_errmsg` for human-readable error messages
 - [x] `[S]` `[P1]` `[data]` Arena allocator for schema data lifetime — load once,
       free on reload (implemented via `Schema.arena` + `Dynamic_Arena`)
-- [ ] `[S]` `[P1]` `[data]` Second pass to resolve FK `to_table`/`to_column` strings
+- [ ] `[M]` `[P1]` `[data]` Second pass to resolve FK `to_table`/`to_column` strings
       to `GlobalColumnIndex` after all tables are loaded — then remove temporary
       `from_column` string field from `ForeignKey`
 - [x] `[S]` `[P2]` `[data]` Read column properties (`type`, `not_null`, `pk`) from
@@ -76,14 +76,50 @@ spend time on them prematurely.
         directory can't be opened — show error message or return error
 - [x] `[S]` `[P1]` `[gui]` File dialog: use arena allocator for per-frame
       directory listing (reset each frame, no per-element delete)
-- [~] `[M]` `[P1]` `[gui]` Query and display schema data in ImGui tree/lists
-      (basic listbox works in schema window, needs polish)
+- [x] `[S]` `[P1]` `[gui]` Basic table-list schema viewer (listbox in schema
+      window shows table names)
+- [ ] `[M]` `[P1]` `[gui]` Schema detail view: when a table is selected, show its
+      columns in an ImGui `BeginTable` with columns Name, Type, Nullable, PK
+- [ ] `[S]` `[P1]` `[gui]` Foreign-key panel in schema detail view: show FK
+      rows (from column, to table.to column) below the column table
+- [ ] `[S]` `[P1]` `[gui]` Schema extractor errors surfaced to user: store
+      `last_error: string` on `AppState`, show as status bar or notification
 - [~] `[L]` `[P1]` `[gui]` ER diagram node graph via ImNodes: tables as labelled
       nodes with columns, Paper & Ink theme applied
+- [ ] `[M]` `[P2]` `[gui]` Draw FK links in node editor: after FK column
+      resolution, loop `schema.foreign_keys` and call `imn.Link`
 - [ ] `[M]` `[P2]` `[gui]` Node canvas — drag, zoom, select (ImNodes provides basic)
 - [ ] `[M]` `[P2]` `[gui]` Sub-diagram view (1–2 degrees of separation from
       a selected table)
 - [ ] `[S]` `[P2]` `[gui]` Schema snapshot viewer (load from file, no DB needed)
+
+## Theme migration
+
+Migrate themes from hard-coded Odin procedures to `.ssTheme` files on
+disk.  See `docs/THEME_MIGRATION.md` for detailed plan.
+
+- [ ] `[L]` `[P1]` `[theme]` Step 1: Write the two `.ssTheme` files
+      (`paper_and_ink_light.ssTheme`, `paper_and_ink_dark.ssTheme`)
+      translating current colour assignments into `[text]`, `[background]`,
+      `[controls]`, `[title_bar]`, `[table_card]`, `[border]`,
+      `[diagram_grid]`, `[accent]`, `[layout]` sections
+- [ ] `[M]` `[P1]` `[theme]` Step 2: Create `theme_loader.odin` — `ThemeData`
+      struct, `load_theme` parser, `apply_theme` writer, `discover_themes`
+      scanner, `parse_colour` / `parse_axis_pair` helpers
+- [ ] `[S]` `[P2]` `[theme]` Step 3: Remove `set_common_elements` (layout
+      values now served as defaults in `ThemeData`)
+- [ ] `[S]` `[P2]` `[theme]` Step 4: Remove `_imnodes_light_theme` and
+      `_imnodes_dark_theme` stubs
+- [ ] `[S]` `[P2]` `[theme]` Step 5: Remove `Theme` enum, replace references
+      with `ThemeData`
+- [ ] `[M]` `[P2]` `[theme]` Step 6: Replace `set_theme` calls with
+      `load_theme("themes/paper_and_ink_light.ssTheme")` + `apply_theme`
+- [ ] `[S]` `[P2]` `[theme]` Step 7: Build Theme menu dynamically from
+      `discover_themes()` slice
+- [ ] `[S]` `[P2]` `[theme]` Step 8: Delete unused helpers — `imn_col` moves
+      to `theme_loader.odin`, `Theme` enum removed, dead stubs removed
+- [ ] `[M]` `[P2]` `[theme]` Step 9: Test — visual parity with current themes,
+      fallback when file missing, custom `.ssTheme` with partial overrides
 
 ## CLI
 
@@ -120,6 +156,12 @@ spend time on them prematurely.
 
 ## Performance
 
+- [x] `[M]` `[P1]` `[perf]` Frame pacing ramp-up: `multiple` now increases when
+      30-frame avg exceeds 95% of target and `multiple < max_multiple`. FPS
+      can recover after throttling down (was stuck at lowest throttle forever).
+- [x] `[S]` `[P1]` `[perf]` Refresh rate re-query on `WINDOW_DISPLAY_CHANGED`:
+      `display_id`, `refresh_rate`, and targets recalculated when window moves
+      to another monitor.
 - [ ] `[S]` `[P2]` `[perf]` Time build phases with `-show-timings` flag in both
       debug and release
 - [ ] `[M]` `[P2]` `[perf]` Time app phases (DB open, introspection queries)

@@ -189,15 +189,17 @@ make_imgui_app :: proc() {
 	refresh_rate := f64(max(mode.refresh_rate, 60.0))
 
 	multiple : u32 = 1
+	max_multiple : u32 = 1
 	fps_target : f64 = refresh_rate
 	frame_time_target : f64 = 1.0 / refresh_rate
 
 	{
 		m := clamp(u32(FPS_CEILING / refresh_rate), 1, 4)
+		multiple = m
+		max_multiple = m
 		t := min(refresh_rate * f64(m), FPS_CEILING)
 		fps_target = t
 		frame_time_target = 1.0 / t
-		multiple = m
 	}
 
 	// Frame pacing throttle: 30-frame ring buffer
@@ -221,6 +223,16 @@ make_imgui_app :: proc() {
 		// 1. Drain all pending events
 		for sdl.PollEvent(&event) {
 			if event.type == .QUIT { running = false }
+			if event.type == .WINDOW_DISPLAY_CHANGED {
+				display_id = sdl.GetDisplayForWindow(window)
+				mode = sdl.GetCurrentDisplayMode(display_id)
+				refresh_rate = f64(max(mode.refresh_rate, 60.0))
+				max_multiple = clamp(u32(FPS_CEILING / refresh_rate), 1, 4)
+				multiple = clamp(multiple, 1, max_multiple)
+				fps_target = min(refresh_rate * f64(multiple), FPS_CEILING)
+				frame_time_target = 1.0 / fps_target
+				fps_full = false
+			}
 			sdl_impl.ProcessEvent(&event)
 		}
 
@@ -289,17 +301,22 @@ make_imgui_app :: proc() {
 			fps_idx = (fps_idx + 1) % FPS_HISTORY
 			if fps_idx == 0 { fps_full = true }
 
-			if fps_full && multiple > 1 {
+			if fps_full {
 				avg := 0.0
 				for v in fps_ring { avg += v }
 				avg /= FPS_HISTORY
 
-				THROTTLE_RATIO :: 0.8
-				if avg < fps_target * THROTTLE_RATIO {
+				if multiple > 1 && avg < fps_target * 0.8 {
 					multiple -= 1
-					t := min(refresh_rate * f64(multiple), FPS_CEILING)
-					fps_target = t
-					frame_time_target = 1.0 / t
+					fps_target = min(refresh_rate * f64(multiple), FPS_CEILING)
+					frame_time_target = 1.0 / fps_target
+					fps_full = false
+				}
+
+				if multiple < max_multiple && avg > fps_target * 0.95 {
+					multiple += 1
+					fps_target = min(refresh_rate * f64(multiple), FPS_CEILING)
+					frame_time_target = 1.0 / fps_target
 					fps_full = false
 				}
 			}

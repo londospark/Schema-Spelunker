@@ -97,18 +97,20 @@ application no longer has any colour values embedded in code.
 
 ## Migration steps
 
-### Step 1 — Create `theme_loader.odin`
-
-Write the parser and `apply_theme` function.  This is pure new code;
-nothing is broken during this step.
-
-### Step 2 — Write the two `.ssTheme` files
+### Step 1 — Write the two `.ssTheme` files
 
 Translate the current hard-coded Light and Dark colour assignments into
 the `[text]`, `[background]`, `[controls]`, `[title_bar]`, `[table_card]`,
 `[border]`, `[diagram_grid]`, `[accent]`, and `[layout]` sections.
 
-This is a mechanical translation — no logic changes.
+Write these first so the parser has real inputs to test against during
+development.  This is a mechanical translation — no logic changes.
+
+### Step 2 — Create `theme_loader.odin`
+
+Write the parser and `apply_theme` function.  Test against the two
+`.ssTheme` files created in Step 1.  This is pure new code;
+nothing is broken during this step.
 
 ### Step 3 — Remove `set_common_elements`
 
