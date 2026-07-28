@@ -98,7 +98,7 @@ spend time on them prematurely.
 Migrate themes from hard-coded Odin procedures to `.ssTheme` files on
 disk.  See `docs/THEME_MIGRATION.md` for detailed plan.
 
-- [ ] `[L]` `[P1]` `[theme]` Step 1: Write the two `.ssTheme` files
+- [x] `[L]` `[P1]` `[theme]` Step 1: Write the two `.ssTheme` files
       (`paper_and_ink_light.ssTheme`, `paper_and_ink_dark.ssTheme`)
       translating current colour assignments into `[text]`, `[background]`,
       `[controls]`, `[title_bar]`, `[table_card]`, `[border]`,

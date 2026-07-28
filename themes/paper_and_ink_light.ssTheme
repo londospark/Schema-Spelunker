@@ -1,0 +1,53 @@
+name = "Paper & Ink Light"
+author = "Schema Spelunker"
+
+# Light theme — warm paper background, deep carbon ink, blueprint blue accent.
+
+[text]
+main = "#1F1F1F"
+muted = "#8C8C8C"
+
+[background]
+window = "#F5F5F0"
+child = "#F5F5F0"
+popup = "#FFFFFF"
+
+[controls]
+frame = "#FFFFFF"
+frame_hover = "#E5EAF2"
+frame_active = "#D9E0EB"
+
+[title_bar]
+background = "#EBEBE6"
+background_focus = "#E0E0DB"
+background_faded = "#EBEBE6"
+
+[table_card]
+background = "#FFFFFF"
+background_hovered = "#F9F9F2"
+background_selected = "#F4F4ED"
+outline = "#BFBFB8"
+
+[border]
+main = "#BFBFB8"
+subtle = "#D9D9D1"
+
+[diagram_grid]
+background = "#F5F5F0"
+line = "#D9D9D1"
+
+[accent]
+colour = "#2C5796"
+
+[layout]
+corner_rounding = 2
+scrollbar_size = 14
+grab_min_size = 12
+item_spacing = horizontal: 8, vertical: 6
+item_inner_spacing = horizontal: 6, vertical: 4
+window_padding = horizontal: 12, vertical: 12
+frame_padding = horizontal: 6, vertical: 4
+cell_padding = horizontal: 6, vertical: 4
+border_width = 1
+frame_border_width = 1
+tab_border_width = 1

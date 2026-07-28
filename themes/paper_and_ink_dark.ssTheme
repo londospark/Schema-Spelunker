@@ -1,0 +1,53 @@
+name = "Paper & Ink Dark"
+author = "Schema Spelunker"
+
+# Dark theme — dark warm paper, off-white ink, blueprint blue accent.
+
+[text]
+main = "#E6E6E0"
+muted = "#8C8C85"
+
+[background]
+window = "#292924"
+child = "#1F1F1A"
+popup = "#33332E"
+
+[controls]
+frame = "#383833"
+frame_hover = "#474740"
+frame_active = "#57574D"
+
+[title_bar]
+background = "#1F1F1A"
+background_focus = "#2E2E26"
+background_faded = "#1F1F1A"
+
+[table_card]
+background = "#383833"
+background_hovered = "#3F3F38"
+background_selected = "#282823"
+outline = "#4C4C47"
+
+[border]
+main = "#4C4C47"
+subtle = "#40403A"
+
+[diagram_grid]
+background = "#282823"
+line = "#4C4C47"
+
+[accent]
+colour = "#2C5796"
+
+[layout]
+corner_rounding = 2
+scrollbar_size = 14
+grab_min_size = 12
+item_spacing = horizontal: 8, vertical: 6
+item_inner_spacing = horizontal: 6, vertical: 4
+window_padding = horizontal: 12, vertical: 12
+frame_padding = horizontal: 6, vertical: 4
+cell_padding = horizontal: 6, vertical: 4
+border_width = 1
+frame_border_width = 1
+tab_border_width = 1
