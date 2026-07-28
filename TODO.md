@@ -106,18 +106,19 @@ disk.  See `docs/THEME_MIGRATION.md` for detailed plan.
 - [x] `[M]` `[P1]` `[theme]` Step 2: Create theme loader — `ThemeData` struct,
       `parse_ssTheme` parser, `apply_theme` writer, hex/axis-pair helpers.
       Inlined in `main.odin` (no separate file).
-- [ ] `[S]` `[P2]` `[theme]` Step 3: Remove `set_common_elements` (layout
+- [x] `[S]` `[P2]` `[theme]` Step 3: Remove `set_common_elements` (layout
       values now served as defaults in `ThemeData`)
-- [ ] `[S]` `[P2]` `[theme]` Step 4: Remove `_imnodes_light_theme` and
-      `_imnodes_dark_theme` stubs
-- [ ] `[S]` `[P2]` `[theme]` Step 5: Remove `Theme` enum, replace references
+- [x] `[S]` `[P2]` `[theme]` Step 4: Remove `_imnodes_light_theme` and
+      `_imnodes_dark_theme` stubs (already dead code, confirmed gone)
+- [x] `[S]` `[P2]` `[theme]` Step 5: Remove `Theme` enum, replace references
       with `ThemeData`
-- [ ] `[M]` `[P2]` `[theme]` Step 6: Replace `set_theme` calls with
-      `load_theme("themes/paper_and_ink_light.ssTheme")` + `apply_theme`
+- [x] `[M]` `[P2]` `[theme]` Step 6: Replace `set_theme` calls with
+      `parse_ssTheme("themes/paper_and_ink_light.ssTheme")` + `apply_theme`
 - [ ] `[S]` `[P2]` `[theme]` Step 7: Build Theme menu dynamically from
-      `discover_themes()` slice
-- [ ] `[S]` `[P2]` `[theme]` Step 8: Delete unused helpers — `imn_col` moves
-      to `theme_loader.odin`, `Theme` enum removed, dead stubs removed
+      `discover_themes()` slice (currently hardcoded to two files)
+- [x] `[S]` `[P2]` `[theme]` Step 8: Delete unused helpers —
+      `imn_col` kept (used by `apply_theme`), `Theme` enum removed,
+      dead stubs removed, `set_common_elements` removed
 - [ ] `[M]` `[P2]` `[theme]` Step 9: Test — visual parity with current themes,
       fallback when file missing, custom `.ssTheme` with partial overrides
 
