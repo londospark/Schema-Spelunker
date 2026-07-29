@@ -33,6 +33,13 @@ AppState :: struct {
 	schema: Schema,
 	file_dialog: FileDialog,
 	schema_window: SchemaWindow,
+	diagram_state: DiagramState
+}
+
+DiagramState :: struct {
+	seed_table: u32,
+	show_from_seed_table: bool,
+	degrees: u8,
 }
 
 DirectoryItemType :: enum {
@@ -89,6 +96,26 @@ Schema :: struct {
 
 convert_odin_string_to_begin_and_end_cstrings :: proc(s: string) -> (begin: cstring, end: cstring) {
 	return cstring(raw_data(s)), cstring(&raw_data(s)[len(s)])
+}
+
+// -1 is the sentinel value, having a bool as well provides no real benefit at the moment, that is something that might change
+// if we want to use or_* at the call sites.
+find_table_by_column :: proc (tables: []Table, column: GlobalColumnIndex) -> int {
+	for table, i in tables {
+		if table.from_column <= column && column < table.to_column {
+			return i
+		}
+	}
+	return -1
+}
+
+collect_visible_tables :: proc(schema: ^Schema, state: DiagramState) -> (tables: [dynamic]u32) {
+	if state.show_from_seed_table && state.degrees > 0 {
+
+	} else {
+		for i in 0..<len(schema.tables) do append(&tables, u32(i))
+	}
+	return
 }
 
 init_file_dialog :: proc(fd: ^FileDialog) -> (err: os.Error) {
@@ -460,9 +487,19 @@ show_node_editor :: proc(app_state: ^AppState) {
 	ig.SetNextWindowSize(ig.Vec2{600, 400}, .Appearing)
 	defer ig.End()
 	if ig.Begin("Diagram") {
-		ig.Button("One Degree")
+		if ig.Button("One Degree") {
+			app_state.diagram_state.degrees = 1
+			app_state.diagram_state.show_from_seed_table = true
+		}
 		ig.SameLine()
-		ig.Button("Two Degrees")
+		if ig.Button("Two Degrees") {
+			app_state.diagram_state.degrees = 2
+			app_state.diagram_state.show_from_seed_table = true
+		}
+		ig.SameLine()
+		if ig.Button("Show All") {
+			app_state.diagram_state.show_from_seed_table = false
+		}
 		imn.BeginNodeEditor()
 
 		for table, i in app_state.schema.tables {

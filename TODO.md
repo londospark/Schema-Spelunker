@@ -15,10 +15,6 @@ Legend: `[S/M/L]` = size · `[P0/P1/P2]` = priority · `[cat]` = category
       free on reload (implemented via `Schema.arena` + `Dynamic_Arena`)
 - [x] `[M]` `[P1]` `[data]` Second pass to resolve FK `to_table`/`to_column` strings
       to `GlobalColumnIndex` after all tables are loaded
-- [ ] `[S]` `[P1]` `[data]` Remove temporary `from_column`/`to_table`/`to_column`
-      string fields from `ForeignKey` now that index resolution is in place
-- [ ] `[S]` `[P1]` `[data]` Remove `resolved_to_index` bool from `ForeignKey` once
-      display code checks resolution (currently set but never read)
 - [x] `[S]` `[P2]` `[data]` Read column properties (`type`, `not_null`, `pk`) from
       `pragma_table_info`
 - [x] `[S]` `[P2]` `[data]` Remove `@Todo` on `database_name` — currently cloned
@@ -35,6 +31,14 @@ spend time on them prematurely.
       usage ever becomes a concern — store `string` directly for now
 - [~] `[S]` `[P3]` `[data]` Store `referenced_by` slice on `Table` for O(1)
       reverse FK lookups (currently scan `foreign_keys` array on demand)
+- [~] `[S]` `[P3]` `[data]` Add `table_index` field to `Column` for O(1)
+      column→table lookup (currently scan `tables[]` range check)
+- [~] `[S]` `[P3]` `[data]` Cache diagram layout positions per seed table
+      so revisiting a sub-diagram remembers node positions after drag
+- [~] `[S]` `[P2]` `[data]` Remove temporary `from_column`/`to_table`/`to_column`
+      string fields from `ForeignKey` now that index resolution works
+- [~] `[S]` `[P2]` `[data]` Remove `resolved_to_index` bool from `ForeignKey` once
+      display code checks resolution (currently set but never read)
 - [~] `[M]` `[P2]` `[prof]` Integrate Tracy profiler for frame timing, zone
       instrumentation, and allocation tracking — can't optimise blind
 - [ ] `[M]` `[P2]` `[data]` Dump schema to a custom snapshot format so exploration
@@ -87,13 +91,49 @@ spend time on them prematurely.
       rows (from column, to table.to column) below the column table
 - [ ] `[S]` `[P1]` `[gui]` Schema extractor errors surfaced to user: store
       `last_error: string` on `AppState`, show as status bar or notification
-- [~] `[L]` `[P1]` `[gui]` ER diagram node graph via ImNodes: tables as labelled
-      nodes with columns, Paper & Ink theme applied
-- [ ] `[M]` `[P2]` `[gui]` Draw FK links in node editor: after FK column
-      resolution, loop `schema.foreign_keys` and call `imn.Link`
-- [ ] `[M]` `[P2]` `[gui]` Node canvas — drag, zoom, select (ImNodes provides basic)
-- [ ] `[M]` `[P2]` `[gui]` Sub-diagram view (1–2 degrees of separation from
-      a selected table)
+
+## Sub-diagram / ER diagram
+
+Phased implementation of the filtered sub-diagram view with FK link lanes.
+
+### Phase 1: Diagram state + BFS + FK links (MVP)
+
+- [x] `[S]` `[P0]` `[gui]` Add `DiagramState` to `AppState` with `seed_table: u32`
+      and `show_from_seed_table: bool` — zero value = show all tables
+- [x] `[S]` `[P0]` `[gui]` Write `find_table_by_column :: proc(tables: []Table,
+      col: GlobalColumnIndex) -> int` — scans `from_column..to_column` range,
+      returns -1 if not found
+- [x] `[S]` `[P0]` `[gui]` Wire "One Degree" / "Two Degrees" / "Show All" buttons
+      to set `diagram_state.degrees` and `show_from_seed_table`
+- [ ] `[M]` `[P0]` `[gui]` BFS over FK graph from seed table, collecting
+      visible table indices within N degrees. Handle N=0/all as full set
+- [ ] `[M]` `[P0]` `[gui]` Render only visible nodes in `show_node_editor`
+      (existing node drawing, just filtered)
+- [ ] `[M]` `[P0]` `[gui]` Draw FK links: loop `schema.foreign_keys`, call
+      `imn.Link` where both endpoint tables are in the visible set.
+      Use raw `GlobalColumnIndex` as pin IDs
+
+### Phase 2: Lane layout
+
+- [ ] `[S]` `[P1]` `[gui]` Compute reference depth for each visible table:
+      root tables (no visible FK references) at depth 0, referencing a
+      depth-N table puts you at depth N+1
+- [ ] `[S]` `[P1]` `[gui]` Assign position: `x = depth * H_SPACE`,
+      `y = index_in_depth * V_SPACE`
+- [ ] `[S]` `[P1]` `[gui]` Call `imn.SetNodeGridSpacePos` on each node
+      before rendering to place in lanes
+
+### Phase 3: Polish
+
+- [ ] `[S]` `[P2]` `[gui]` Pin attributes on column rows (`imn.BeginPin` /
+      `imn.EndPin`) so FK links attach to the correct column line
+- [ ] `[S]` `[P2]` `[gui]` Visual direction: referenced table column =
+      output pin (right side), referencing table column = input pin (left)
+- [ ] `[S]` `[P2]` `[gui]` Highlight active seed table in the diagram
+      (different title bar colour or border)
+- [ ] `[S]` `[P2]` `[gui]` Degree buttons show current state as selected/active
+- [ ] `[M]` `[P2]` `[gui]` Schema window links to diagram: selecting a table
+      in the schema list sets it as the diagram seed
 - [ ] `[S]` `[P2]` `[gui]` Schema snapshot viewer (load from file, no DB needed)
 
 ## Theme migration
@@ -117,8 +157,10 @@ disk.  See `docs/THEME_MIGRATION.md` for detailed plan.
       with `ThemeData`
 - [x] `[M]` `[P2]` `[theme]` Step 6: Replace `set_theme` calls with
       `parse_ssTheme("themes/paper_and_ink_light.ssTheme")` + `apply_theme`
-- [ ] `[S]` `[P2]` `[theme]` Step 7: Build Theme menu dynamically from
-      `discover_themes()` slice (currently hardcoded to two files)
+- [ ] `[M]` `[P1]` `[theme]` Step 7: Build Theme menu dynamically from
+      `discover_themes()` scan of `themes/*.ssTheme` — removes hardcoded
+      Light/Dark entries, user can drop custom `.ssTheme` files in the
+      themes folder
 - [x] `[S]` `[P2]` `[theme]` Step 8: Delete unused helpers —
       `imn_col` kept (used by `apply_theme`), `Theme` enum removed,
       dead stubs removed, `set_common_elements` removed
