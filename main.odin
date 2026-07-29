@@ -37,7 +37,7 @@ AppState :: struct {
 }
 
 DiagramState :: struct {
-	seed_table: u32,
+	seed_table: GlobalTableIndex,
 	show_from_seed_table: bool,
 	degrees: u8,
 }
@@ -57,6 +57,7 @@ SQLITE_MAGIC :: [16]u8{ 0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x20, 0x66, 0x6f, 0x
 
 GlobalColumnIndex :: distinct u32 // All tables will have at least one column therefore we don't need a sentinel value
 GlobalForeignKeyIndex :: distinct u32 // There may be tables with no FK, but we will deal with that with a simple bool
+GlobalTableIndex :: distinct u32
 
 Column :: struct {
 	name: string,
@@ -109,11 +110,61 @@ find_table_by_column :: proc (tables: []Table, column: GlobalColumnIndex) -> int
 	return -1
 }
 
-collect_visible_tables :: proc(schema: ^Schema, state: DiagramState) -> (tables: [dynamic]u32) {
-	if state.show_from_seed_table && state.degrees > 0 {
+collect_visible_tables :: proc(schema: ^Schema, state: DiagramState) -> (tables: [dynamic]GlobalTableIndex) {
+	if !state.show_from_seed_table || state.degrees == 0 {
+		for i in 0..<len(schema.tables) do append(&tables, GlobalTableIndex(u32(i)))
+		return
+	}
 
-	} else {
-		for i in 0..<len(schema.tables) do append(&tables, u32(i))
+	depth := make(map[GlobalTableIndex]u8, context.temp_allocator)
+	defer delete(depth)
+
+	queue := make([dynamic]GlobalTableIndex, context.temp_allocator)
+	defer delete(queue)
+	head: int
+
+	append(&queue, state.seed_table)
+	depth[state.seed_table] = 0
+	append(&tables, state.seed_table)
+
+	for head < len(queue) {
+		current := queue[head]
+		head += 1
+
+		current_depth := depth[current]
+		if current_depth >= state.degrees {
+			continue
+		}
+
+		linked := linked_tables(schema, current)
+		for t in linked {
+			if !(t in depth) {
+				depth[t] = current_depth + 1
+				append(&tables, t)
+				append(&queue, t)
+			}
+		}
+	}
+	return
+}
+
+linked_tables :: proc(schema: ^Schema, table_idx: GlobalTableIndex) -> (tables: [dynamic]GlobalTableIndex) {
+	table := schema.tables[table_idx]
+	if table.has_foreign_keys {
+		fks := schema.foreign_keys[table.from_foreign_key:table.to_foreign_key]
+		for key in fks {
+			t := find_table_by_column(schema.tables[:], key.to)
+			if t >= 0 do append(&tables, GlobalTableIndex(u32(t)))
+		}
+	}
+	for key in schema.foreign_keys {
+		to_table := find_table_by_column(schema.tables[:], key.to)
+		if to_table >= 0 && GlobalTableIndex(u32(to_table)) == table_idx {
+			from_table := find_table_by_column(schema.tables[:], key.from)
+			if from_table >= 0 {
+				append(&tables, GlobalTableIndex(u32(from_table)))
+			}
+		}
 	}
 	return
 }
@@ -290,6 +341,14 @@ make_imgui_app :: proc() {
 					for fk in schema.foreign_keys {
 						fmt.printfln("%s (%d) ==> %s.%s (%d)", fk.from_column, fk.from, fk.to_table, fk.to_column, fk.to)
 					}
+
+					tables := collect_visible_tables(&schema, DiagramState{
+						seed_table = GlobalTableIndex(0),
+						show_from_seed_table = true,
+						degrees = 2,
+					})
+
+					fmt.eprintfln("Visible: %v", tables)
 				}
 			}
 
