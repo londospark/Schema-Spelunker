@@ -11,8 +11,9 @@ when ODIN_OS == .Windows {
 
 @(default_calling_convention = "c", link_prefix = "ImGui_ImplOpenGL3_")
 foreign imguilib {
-	Init      :: proc(glsl_version: cstring) -> bool ---
-	Shutdown  :: proc() ---
-	NewFrame  :: proc() ---
-	RenderDrawData :: proc(draw_data: rawptr) ---
+	Init                :: proc(glsl_version: cstring) -> bool ---
+	Shutdown            :: proc() ---
+	NewFrame            :: proc() ---
+	RenderDrawData      :: proc(draw_data: rawptr) ---
+	CreateDeviceObjects :: proc() -> bool ---
 }

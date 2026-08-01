@@ -10,7 +10,7 @@ if not exist bin mkdir bin
 call _compile_libs.bat
 if errorlevel 1 exit /b 1
 
-set FLAGS=-vet
+set FLAGS=-vet -o:speed
 if "%~1"=="release" set FLAGS=-o:speed
 if "%~2"=="release" set FLAGS=-o:speed
 if "%~1"=="debug" set FLAGS=-o:none -debug

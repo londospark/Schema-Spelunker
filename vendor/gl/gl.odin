@@ -15,6 +15,7 @@ when ODIN_OS == .Windows {
 foreign lib {
 	Clear      :: proc(mask: u32) ---
 	ClearColor :: proc(r, g, b, a: f32) ---
+	Finish     :: proc() ---
 }
 
 GL_COLOR_BUFFER_BIT :: 0x00004000

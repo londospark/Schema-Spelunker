@@ -5,12 +5,14 @@ import "core:mem"
 import "core:strings"
 import "core:os"
 import "core:time"
+import "core:c"
 import sqlite "vendor/sqlite3"
 import sdl "vendor:sdl3"
 import ig "vendor/imgui"
 import imn "vendor/imnodes"
 import sdl_impl "vendor/imgui/backends"
 import gl_impl "vendor/imgui/backends/opengl3"
+import gl "vendor/gl"
 
 BUF_LEN :: 4096
 FileDialog :: struct {
@@ -192,6 +194,7 @@ main :: proc() {
 }
 
 make_imgui_app :: proc() {
+	t_init_start := time.tick_now()
 	app_state: AppState
 	sdl.SetHint("SDL_HINT_IME_SHOW_UI", "1")
 	if !sdl.Init({.VIDEO}) {
@@ -200,24 +203,44 @@ make_imgui_app :: proc() {
 	}
 	defer sdl.Quit()
 
-	// OpenGL 3.3 core context — must be set before CreateWindow
-	sdl.GL_SetAttribute(.CONTEXT_MAJOR_VERSION, 3)
-	sdl.GL_SetAttribute(.CONTEXT_MINOR_VERSION, 3)
+	// OpenGL 4.5 core context — must be set before CreateWindow
+	// Using 4.5+ for better shader compilation and pipeline control
+	sdl.GL_SetAttribute(.CONTEXT_MAJOR_VERSION, 4)
+	sdl.GL_SetAttribute(.CONTEXT_MINOR_VERSION, 5)
 	sdl.GL_SetAttribute(.CONTEXT_PROFILE_MASK, i32(sdl.GL_CONTEXT_PROFILE_CORE))
 
-	window := sdl.CreateWindow("Schema Spelunker", 1600, 900, {.OPENGL, .HIGH_PIXEL_DENSITY, .RESIZABLE})
+	t_win := time.tick_now()
+	window := sdl.CreateWindow("Schema Spelunker", 1600, 900, {.OPENGL, .RESIZABLE, .HIDDEN})
+	fmt.eprintfln("[win] CreateWindow: %.1fms", time.duration_seconds(time.tick_since(t_win)) * 1000)
 	if window == nil {
 		fmt.eprintfln("SDL3 CreateWindow failed: %s", sdl.GetError())
 		return
 	}
 	defer sdl.DestroyWindow(window)
 
+	// --- display diagnostics ---
+	{
+		display_count: c.int
+		displays := sdl.GetDisplays(&display_count)
+		fmt.eprintfln("[disp] %d displays:", int(display_count))
+		for i in 0..<int(display_count) {
+			id := displays[i]
+			bounds: sdl.Rect
+			sdl.GetDisplayBounds(id, &bounds)
+			fmt.eprintfln("[disp]   [%d] %s (%dx%d @ %d,%d)", i, sdl.GetDisplayName(id), int(bounds.w), int(bounds.h), int(bounds.x), int(bounds.y))
+		}
+		win_disp := sdl.GetDisplayForWindow(window)
+		fmt.eprintfln("[disp] Window is on display ID %d (%s)", int(win_disp), sdl.GetDisplayName(win_disp))
+	}
+
+	t_ctx := time.tick_now()
 	gl_context := sdl.GL_CreateContext(window)
 	if gl_context == nil {
 		fmt.eprintfln("SDL3 GL context failed: %s", sdl.GetError())
 		return
 	}
 	defer sdl.GL_DestroyContext(gl_context)
+	fmt.eprintfln("[ctx] GL_CreateContext: %.1fms", time.duration_seconds(time.tick_since(t_ctx)) * 1000)
 
 	sdl.GL_MakeCurrent(window, gl_context)
 	sdl.GL_SetSwapInterval(0)
@@ -225,7 +248,20 @@ make_imgui_app :: proc() {
 	// some GLX/EGL configurations despite being "adaptive".  We tried it.
 	// Instead we run uncapped and pace the loop ourselves with a sleep.
 
-	// Init ImGui
+	// Fire off the first swap to start any deferred driver work
+	// (swap chain buffer allocation, DWM registration), then DON'T wait
+	// for it yet — we'll overlap it with ImGui init.
+	t_prime := time.tick_now()
+	gl.Clear(gl.GL_COLOR_BUFFER_BIT)
+	sdl.GL_SwapWindow(window)
+	prime_ms := time.duration_seconds(time.tick_since(t_prime)) * 1000
+	// Async GPU work is now in flight. Continue with init while it cooks.
+
+	t_imgui := time.tick_now()
+
+	// Keep the window hidden during init to avoid showing a black/empty window.
+	// Show it once the GPU is warmed up and we're about to enter the main loop.
+
 	ig.CreateContext()
 	defer ig.DestroyContext(nil)
 
@@ -237,7 +273,6 @@ make_imgui_app :: proc() {
 
 	io := ig.GetIO()
 	font_filename: cstring = "Roboto.ttf"
-
 	ascii_range := [?]ig.Wchar{32, 126, 0}
 	ig.FontAtlas_AddFontFromFileTTF(io.Fonts, font_filename, glyph_ranges = &ascii_range[0])
 
@@ -248,11 +283,32 @@ make_imgui_app :: proc() {
 	}
 	defer sdl_impl.Shutdown()
 
-	if !gl_impl.Init("#version 330 core") {
+	if !gl_impl.Init("#version 450 core") {
 		fmt.eprintln("ImGui OpenGL3 backend init failed")
 		return
 	}
 	defer gl_impl.Shutdown()
+	imgui_ms := time.duration_seconds(time.tick_since(t_imgui)) * 1000
+	fmt.eprintfln("[init] ImGui+backends init: %.1fms  (prime swap returned in %.1fms)", imgui_ms, prime_ms)
+
+	io.ConfigFlags |= {.DockingEnable}
+
+	// --- Render a warm-up frame to force shader+texture upload ---
+	// The deferred GPU work from the prime swap should be mostly done by now.
+	t_warm := time.tick_now()
+	gl_impl.NewFrame()
+	sdl_impl.NewFrame()
+	ig.NewFrame()
+	ig.DockSpaceOverViewport(viewport = ig.GetMainViewport())
+	if ig.BeginMainMenuBar() {
+		ig.EndMainMenuBar()
+	}
+	ig.Render()
+	gl_impl.RenderDrawData(ig.GetDrawData())
+	sdl.GL_SwapWindow(window)
+	gl.Finish()
+	warm_ms := time.duration_seconds(time.tick_since(t_warm)) * 1000
+	fmt.eprintfln("[warmup] Warm-up frame (includes deferred wait): %.1fms", warm_ms)
 
 	FPS_CEILING :: 240.0
 
@@ -260,7 +316,10 @@ make_imgui_app :: proc() {
 	// then throttle down if the machine can't keep up.
 	display_id := sdl.GetDisplayForWindow(window)
 	mode := sdl.GetCurrentDisplayMode(display_id)
-	refresh_rate := f64(max(mode.refresh_rate, 60.0))
+	refresh_rate := 60.0
+	if mode != nil && mode.refresh_rate > 0 {
+		refresh_rate = f64(mode.refresh_rate)
+	}
 
 	multiple : u32 = 1
 	max_multiple : u32 = 1
@@ -288,19 +347,28 @@ make_imgui_app :: proc() {
 	}
 	defer mem.dynamic_arena_destroy(&app_state.file_dialog.arena)
 
+	fmt.eprintfln("[startup] Total init: %.1fms", time.duration_seconds(time.tick_since(t_init_start)) * 1000)
+
+	// Window was created hidden to avoid showing a black screen during init.
+	// Now that the GPU is warmed up, make it visible.
+	sdl.ShowWindow(window)
+
 	// Main loop
 	event: sdl.Event
 	running := true
-	io.ConfigFlags |= {.DockingEnable}
 	t0 := time.tick_now()
 	for running {
+
 		// 1. Drain all pending events
 		for sdl.PollEvent(&event) {
 			if event.type == .QUIT { running = false }
 			if event.type == .WINDOW_DISPLAY_CHANGED {
 				display_id = sdl.GetDisplayForWindow(window)
 				mode = sdl.GetCurrentDisplayMode(display_id)
-				refresh_rate = f64(max(mode.refresh_rate, 60.0))
+				refresh_rate = 60.0
+				if mode != nil && mode.refresh_rate > 0 {
+					refresh_rate = f64(mode.refresh_rate)
+				}
 				max_multiple = clamp(u32(FPS_CEILING / refresh_rate), 1, 4)
 				multiple = clamp(multiple, 1, max_multiple)
 				fps_target = min(refresh_rate * f64(multiple), FPS_CEILING)
@@ -310,20 +378,16 @@ make_imgui_app :: proc() {
 			sdl_impl.ProcessEvent(&event)
 		}
 
-		{
 		// 2. Inject the absolute latest mouse position before the frame starts
 		mx, my: f32
 		_ = sdl.GetMouseState(&mx, &my)
 		io.MousePos = ig.Vec2{mx, my}
-		}
 
 		// 3. Render one frame
 		gl_impl.NewFrame()
 		sdl_impl.NewFrame()
 		ig.NewFrame()
 		ig.DockSpaceOverViewport(viewport = ig.GetMainViewport())
-
-
 		{
 			defer ig.Render()
 			if app_state.file_dialog.show {
@@ -375,9 +439,7 @@ make_imgui_app :: proc() {
 				ig.EndMainMenuBar()
 			}
 		}
-
 		gl_impl.RenderDrawData(ig.GetDrawData())
-
 		sdl.GL_SwapWindow(window)
 
 		// 4. Frame pace: sleep for the remaining time to hit target FPS.
