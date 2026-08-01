@@ -142,12 +142,43 @@ cost over RDP. It also explains why the user saw the problem locally too —
 the local console still goes through the same driver's present path with its
 own one-time setup cost.
 
-## Why the laptop is fast
+## Why the laptop is fast — it was using the iGPU
 
-Laptop has a direct physical panel on the iGPU/dGPU path, no virtual display
-adapter, no RDP encode pipeline. `CreateWindow` is still ~120ms (high vs
-plain windows) but the swap path has no encode setup to initialize, so total
-init is ~219ms.
+The laptop (i7-14650HX, RTX 4070) does not actually use the GeForce for this
+app. Evidence:
+
+| Measurement | Laptop (Intel iGPU) | Desktop (NVIDIA RTX 5080) |
+|---|---|---|
+| `gl_impl.Init` + backend init | **0.6ms** | 306-1527ms |
+| `GL_CreateContext` | **18.8ms** | 2.7-3.4ms |
+
+The 0.6ms vs 306-1527ms gap in the ImGui/GL-backend init is the signature of
+driver type. The NVIDIA ICD has heavy one-time per-context dispatch cost
+(extension enumeration + first real GL calls after context creation). Intel's
+iGPU driver has almost none. Slower context creation on the laptop (18.8ms vs
+~3ms) is also classic iGPU behavior.
+
+**Routing mechanism**: On Windows laptops, which GPU a generic OpenGL app gets
+is decided by Windows graphics settings + the NVIDIA driver (Optimus), *not*
+by SDL or the app. The default for an app without an explicit "High
+performance" assignment is the **iGPU** (power-saving default). There is no
+SDL hint to force the dGPU; it's controlled by:
+1. `Settings → System → Display → Graphics` (per-app preference)
+2. NVIDIA Control Panel (per-app GPU selection)
+3. Driver default (iGPU)
+
+So the iGPU is the realistic baseline for Windows laptops. The desktop's
+NVIDIA ICD overhead (300-1500ms in `gl_impl.Init`) is driver-side and not
+reducible from app code.
+
+## The `gl_impl.Init` cost is CPU-side, not GPU
+
+A `glFinish` checkpoint right after `ImGui_ImplOpenGL3_Init` returns in
+**0.1ms** — the GPU is already idle. So the 300-1500ms is **CPU-side driver
+dispatch** inside Init (the `GL_NUM_EXTENSIONS` enumeration loop at
+`imgui_impl_opengl3.cpp:1079-1086` plus the first real GL round-trip after
+context creation), not async GPU work. It is a one-time per-context NVIDIA
+driver cost.
 
 ## Conclusions / guidance
 
@@ -157,18 +188,27 @@ init is ~219ms.
 - The prime-swap + warm-up pattern is correct and should be kept. It is
   harmless on fast machines (~3ms warm-up) and eliminates the visible stall
   on slow ones.
-- Accept that absolute startup time is display-path dependent: ~220ms laptop,
-  ~480-900ms desktop. The window is never visibly black thanks to `.HIDDEN`.
+- Accept that absolute startup time is display-path dependent: ~220ms laptop
+  (iGPU), ~480-900ms desktop (NVIDIA ICD). The window is never visibly black
+  thanks to `.HIDDEN`.
+- The `[gl]` instrumentation line reports `GL_VENDOR`/`GL_RENDERER` so any
+  machine's actual GPU routing is visible at a glance — run it on the Steam
+  Deck to see the Mesa driver path.
 
 ## Repo state
 
 - Commit `200004f` ("wip: instrument startup timing; prime swap + warm-up
   frame to diagnose first-frame stall") pushed to `origin/main` contains the
   fix plus startup-phase instrumentation.
-- Instrumentation tags in `make_imgui_app`: `[win]`, `[probe]`, `[disp]`,
-  `[ctx]`, `[init]`, `[warmup]`, `[startup]`.
-- The GL context is back to 3.3 core (the 4.5 experiment was reverted; it
-  made no measurable difference).
+- Commit `89d1b5e` ("docs: add startup performance investigation notes;
+  revert GL to 3.3 core") added this file and reverted the GL context to 3.3.
+- Commit `b5aa426` ("feat: add hardware profile + GL vendor/renderer
+  diagnostics, fine-grained init timing") added the `[hw]`, `[gl]` lines and
+  the per-phase `[init]` breakdown.
+- Instrumentation tags in `make_imgui_app`: `[hw]`, `[win]`, `[probe]`,
+  `[disp]`, `[ctx]`, `[gl]`, `[init]`, `[warmup]`, `[startup]`.
+- The GL context is 3.3 core (the 4.5 experiment was reverted; it made no
+  measurable difference).
 - When the investigation is concluded, strip the instrumentation but keep the
   prime-swap + warm-up + hidden-window flow and the `.HIDDEN`/`ShowWindow`
   pair.
@@ -176,7 +216,8 @@ init is ~219ms.
 ## Files touched during the investigation
 
 - `main.odin` — startup flow, prime swap, warm-up frame, instrumentation.
-- `vendor/gl/gl.odin` — added `Finish` binding (and `Clear` already existed).
+- `vendor/gl/gl.odin` — added `Finish`, `GetString` bindings and
+  `GL_VENDOR`/`GL_RENDERER`/`GL_VERSION` constants.
 - `vendor/imgui/backends/imgui_impl_opengl3.h` — wrapped `CreateDeviceObjects`/
   `DestroyDeviceObjects` in `extern "C"` (fixes linkage).
 - `vendor/imgui/backends/opengl3/imgui_impl_opengl3.odin` — exposed
