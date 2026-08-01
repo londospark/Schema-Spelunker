@@ -15,6 +15,10 @@ build\
 *.lib
 *.dll
 
+# --- Nix ---
+result
+.direnv
+
 # --- IDE session files (keep project file, ignore workspace session) ---
 *.sublime-workspace
 

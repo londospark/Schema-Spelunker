@@ -65,8 +65,6 @@ ensure_imgui() {
 
     echo "Compiling ImGui + ImNodes + backends from source..."
 
-    mkdir -p build/imgui
-
     IMGUI=vendor/imgui
     SDL3INC=vendor/sdl3_headers
 
@@ -86,8 +84,7 @@ ensure_imgui() {
         "$IMGUI/backends/imgui_impl_opengl3.cpp"
 
     $AR rcs "$IMGUI/imgui.a" *.o
-    mv *.o build/imgui/
-    rm -rf build/imgui
+    rm -f *.o
 }
 
 ensure_sqlite

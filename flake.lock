@@ -1,0 +1,45 @@
+{
+  "nodes": {
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1785571196,
+        "narHash": "sha256-KoTsyMQqnXQZq8deCEnu4QkyldkwH/bpMMhUcfMdGIw=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "148bab9c1c3c53136ecb44a6ea356a0ed5b39b06",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "odin-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1785593811,
+        "narHash": "sha256-FmpVZKFQnKt89MuJF9LDui0COc25Zm5k9Dl2d8NpKyw=",
+        "owner": "odin-lang",
+        "repo": "Odin",
+        "rev": "fa706198ba0463ec60d2cca7b27143ab8b63bc1a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "odin-lang",
+        "ref": "master",
+        "repo": "Odin",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "nixpkgs": "nixpkgs",
+        "odin-src": "odin-src"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

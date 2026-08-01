@@ -11,14 +11,14 @@
 			"path": "/home/londo/.local/share/mise/installs/odin/dev-2026-07a",
 		},
 		{
-			"path": "/nix/store/ia5c5djwfzyml82ds17i29ap9p6rv697-odin-dev-2026-05/share"
+			"path": "~/.nix-profile/share",
 		},
 	],
 	"build_systems":
 	[
 		{
 			"name": "Build & Run (Unix)",
-			"shell_cmd": "./build.sh run",
+			"shell_cmd": "~/.nix-profile/bin/nix develop . --command ./build.sh run",
 			"working_dir": "${project_path}",
 			"file_regex": "^(.+)\\((\\d+):(\\d+)\\) (.+): (.+)$",
 		},

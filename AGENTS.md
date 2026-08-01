@@ -17,15 +17,30 @@ SQLite schema browser. SDL3 + Dear ImGui + OpenGL 3.3.
 
 ## Build
 
+**Linux:** enter the Nix dev shell first (`nix develop .`, or via direnv on `cd`), then run the scripts below.
+`nix develop . --command ./build.sh run` works for a one-shot build. The devShell provides odin
+(git-master, built with LLVM 22), clang, mold, SDL3 and GL at the right versions.
+
+`./build.sh [run|release|debug|clean]` — same semantics.
+`build.sh debug run` works the same as `build.sh run debug`.
+`./seed.sh` — builds and runs `test/seed.odin` to create `seed.db`.
+`./seed.sh huge` — builds `test/huge_seed.odin` to create `huge.db`.
+
 **Windows:** `build.bat [run|release|debug|clean]` — compiles vendor libs, then `odin build . -vet`.
 `build.bat run` builds and launches.
 `build.bat release` adds `-o:speed`.
 `build.bat debug` adds `-o:none -debug`.
 `build.bat clean` removes `bin/` and `build/`.
 
-**Linux:** `./build.sh [run|release|debug|clean]` — same semantics.
-`build.sh debug run` works the same as `build.sh run debug`.
-`./seed.sh` — builds and runs `test/seed.odin` to create `seed.db`.
+## Nix dev environment
+
+- `flake.nix` — odin built from git-master against LLVM 22 (`make release`), wrapped with `ODIN_ROOT`
+  set and clang/lld on PATH. `devShells.default` exposes odin + build deps and sets `LD_LIBRARY_PATH`.
+- `nix flake update` — bumps odin-src (git-master) and nixpkgs inputs to latest; the devShell picks up new odin.
+- `.envrc` — `use flake`; direnv auto-loads the devShell on `cd`.
+- Sublime build system runs through `nix develop . --command ./build.sh run` so C-b works anywhere.
+- Odin is also installed globally via home-manager (`~/.nix-profile/share`), which the Sublime project
+  uses for stdlib file browsing.
 
 ## Key design decisions
 
