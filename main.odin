@@ -5,7 +5,6 @@ import "core:mem"
 import "core:strings"
 import "core:os"
 import "core:time"
-import "core:c"
 import sqlite "vendor/sqlite3"
 import sdl "vendor:sdl3"
 import ig "vendor/imgui"
@@ -194,9 +193,7 @@ main :: proc() {
 }
 
 make_imgui_app :: proc() {
-	t_init_start := time.tick_now()
-
-	// --- hardware profile (for comparing startup on different machines) ---
+	// --- hardware profile (for diagnosing startup on different machines) ---
 	{
 		platform := sdl.GetPlatform()
 		rams := sdl.GetSystemRAM()
@@ -218,55 +215,19 @@ make_imgui_app :: proc() {
 	sdl.GL_SetAttribute(.CONTEXT_MINOR_VERSION, 3)
 	sdl.GL_SetAttribute(.CONTEXT_PROFILE_MASK, i32(sdl.GL_CONTEXT_PROFILE_CORE))
 
-	t_win := time.tick_now()
 	window := sdl.CreateWindow("Schema Spelunker", 1600, 900, {.OPENGL, .RESIZABLE, .HIDDEN})
-	fmt.eprintfln("[win] CreateWindow(OPENGL 3.3): %.1fms", time.duration_seconds(time.tick_since(t_win)) * 1000)
 	if window == nil {
 		fmt.eprintfln("SDL3 CreateWindow failed: %s", sdl.GetError())
 		return
 	}
 	defer sdl.DestroyWindow(window)
 
-	// --- experiment: is the OPENGL pixel-format setup the slow part? ---
-	{
-		t_plain := time.tick_now()
-		plain := sdl.CreateWindow("probe", 320, 200, {.HIDDEN})
-		plain_ms := time.duration_seconds(time.tick_since(t_plain)) * 1000
-		if plain != nil {
-			defer sdl.DestroyWindow(plain)
-		}
-		t_plain2 := time.tick_now()
-		plain2 := sdl.CreateWindow("probe2", 320, 200, {.HIDDEN})
-		plain2_ms := time.duration_seconds(time.tick_since(t_plain2)) * 1000
-		if plain2 != nil {
-			defer sdl.DestroyWindow(plain2)
-		}
-		fmt.eprintfln("[probe] plain window #1: %.1fms  #2: %.1fms", plain_ms, plain2_ms)
-	}
-
-	// --- display diagnostics ---
-	{
-		display_count: c.int
-		displays := sdl.GetDisplays(&display_count)
-		fmt.eprintfln("[disp] %d displays:", int(display_count))
-		for i in 0..<int(display_count) {
-			id := displays[i]
-			bounds: sdl.Rect
-			sdl.GetDisplayBounds(id, &bounds)
-			fmt.eprintfln("[disp]   [%d] %s (%dx%d @ %d,%d)", i, sdl.GetDisplayName(id), int(bounds.w), int(bounds.h), int(bounds.x), int(bounds.y))
-		}
-		win_disp := sdl.GetDisplayForWindow(window)
-		fmt.eprintfln("[disp] Window is on display ID %d (%s)", int(win_disp), sdl.GetDisplayName(win_disp))
-	}
-
-	t_ctx := time.tick_now()
 	gl_context := sdl.GL_CreateContext(window)
 	if gl_context == nil {
 		fmt.eprintfln("SDL3 GL context failed: %s", sdl.GetError())
 		return
 	}
 	defer sdl.GL_DestroyContext(gl_context)
-	fmt.eprintfln("[ctx] GL_CreateContext: %.1fms", time.duration_seconds(time.tick_since(t_ctx)) * 1000)
 
 	sdl.GL_MakeCurrent(window, gl_context)
 	sdl.GL_SetSwapInterval(0)
@@ -282,39 +243,26 @@ make_imgui_app :: proc() {
 	// Fire off the first swap to start any deferred driver work
 	// (swap chain buffer allocation, DWM registration), then DON'T wait
 	// for it yet — we'll overlap it with ImGui init.
-	t_prime := time.tick_now()
 	gl.Clear(gl.GL_COLOR_BUFFER_BIT)
 	sdl.GL_SwapWindow(window)
-	prime_ms := time.duration_seconds(time.tick_since(t_prime)) * 1000
 	// Async GPU work is now in flight. Continue with init while it cooks.
-
-	t_imgui := time.tick_now()
 
 	// Keep the window hidden during init to avoid showing a black/empty window.
 	// Show it once the GPU is warmed up and we're about to enter the main loop.
 
 	ig.CreateContext()
 	defer ig.DestroyContext(nil)
-	t_imgui_ctx := time.duration_seconds(time.tick_since(t_imgui)) * 1000
-	ig_time := time.tick_now()
 
 	imn.CreateContext()
 	defer imn.DestroyContext(nil)
-	t_imn_ctx := time.duration_seconds(time.tick_since(ig_time)) * 1000
-	theme_time := time.tick_now()
-
 	if theme_data, theme_ok := parse_ssTheme("themes/paper_and_ink_light.ssTheme", context.temp_allocator); theme_ok {
 		apply_theme(theme_data)
 	}
-	t_theme := time.duration_seconds(time.tick_since(theme_time)) * 1000
-	font_time := time.tick_now()
 
 	io := ig.GetIO()
 	font_filename: cstring = "Roboto.ttf"
 	ascii_range := [?]ig.Wchar{32, 126, 0}
 	ig.FontAtlas_AddFontFromFileTTF(io.Fonts, font_filename, glyph_ranges = &ascii_range[0])
-	t_font := time.duration_seconds(time.tick_since(font_time)) * 1000
-	sdl_backend_time := time.tick_now()
 
 	// Init backends
 	if !sdl_impl.InitForOpenGL(window, gl_context) {
@@ -322,26 +270,17 @@ make_imgui_app :: proc() {
 		return
 	}
 	defer sdl_impl.Shutdown()
-	t_sdl_backend := time.duration_seconds(time.tick_since(sdl_backend_time)) * 1000
-	gl_backend_time := time.tick_now()
 
 	if !gl_impl.Init("#version 330 core") {
 		fmt.eprintln("ImGui OpenGL3 backend init failed")
 		return
 	}
 	defer gl_impl.Shutdown()
-	t_gl_backend := time.duration_seconds(time.tick_since(gl_backend_time)) * 1000
-
-	imgui_ms := time.duration_seconds(time.tick_since(t_imgui)) * 1000
-
-	fmt.eprintfln("[init] breakdown: CreateContext=%.1fms ImNodesCtx=%.1fms theme=%.1fms font=%.1fms sdlBackend=%.1fms glBackend=%.1fms  total=%.1fms (prime swap ret=%.1fms)",
-		t_imgui_ctx, t_imn_ctx, t_theme, t_font, t_sdl_backend, t_gl_backend, imgui_ms, prime_ms)
 
 	io.ConfigFlags |= {.DockingEnable}
 
 	// --- Render a warm-up frame to force shader+texture upload ---
 	// The deferred GPU work from the prime swap should be mostly done by now.
-	t_warm := time.tick_now()
 	gl_impl.NewFrame()
 	sdl_impl.NewFrame()
 	ig.NewFrame()
@@ -353,8 +292,6 @@ make_imgui_app :: proc() {
 	gl_impl.RenderDrawData(ig.GetDrawData())
 	sdl.GL_SwapWindow(window)
 	gl.Finish()
-	warm_ms := time.duration_seconds(time.tick_since(t_warm)) * 1000
-	fmt.eprintfln("[warmup] Warm-up frame (includes deferred wait): %.1fms", warm_ms)
 
 	FPS_CEILING :: 240.0
 
@@ -392,8 +329,6 @@ make_imgui_app :: proc() {
 		return
 	}
 	defer mem.dynamic_arena_destroy(&app_state.file_dialog.arena)
-
-	fmt.eprintfln("[startup] Total init: %.1fms", time.duration_seconds(time.tick_since(t_init_start)) * 1000)
 
 	// Window was created hidden to avoid showing a black screen during init.
 	// Now that the GPU is warmed up, make it visible.

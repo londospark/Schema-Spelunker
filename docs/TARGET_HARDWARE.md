@@ -85,16 +85,19 @@ stronger than a corp laptop's iGPU, while its CPU is mid-range. It tests the
    single-threaded-friendly. A 4-core U-series CPU at ~2-3GHz boost is the
    floor; don't do anything per-frame that's O(N^2) over schema size.
 
-## Reference: our three test machines
+## Reference: our four test machines
 
 | Machine | CPU | RAM | GPU path | GL driver | Startup (current) |
 |---|---|---|---|---|---|
 | Dev desktop | (32-core) | 128GB | NVIDIA RTX 5080 | NVIDIA ICD | ~500-1600ms |
+| Desktop (RDP) | (32-core) | 128GB | NVIDIA RTX 5080 | NVIDIA ICD + encode | ~480ms |
 | Laptop | i7-14650HX (24t) | 64GB | Intel iGPU (default) | Intel | ~220ms |
-| Steam Deck | Van Gogh 4C/8T | 16GB | RDNA2 8CU | Mesa | TBD |
+| Steam Deck (1440p) | Van Gogh 4C/8T | 16GB | RDNA2 8CU | Mesa | **144.7ms** |
 
 The desktop's slow startup is NVIDIA-driver-specific; both the laptop and the
-Steam Deck should be fast (lightweight driver dispatch).
+Steam Deck are fast (lightweight driver dispatch). The Steam Deck at 1440p was
+the fastest of all four — rendering resolution is a non-issue for this 2D
+workload; the CPU is the constraint on weak machines, not the GPU.
 
 ## Sources / notes
 

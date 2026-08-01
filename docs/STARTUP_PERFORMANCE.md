@@ -192,8 +192,23 @@ driver cost.
   (iGPU), ~480-900ms desktop (NVIDIA ICD). The window is never visibly black
   thanks to `.HIDDEN`.
 - The `[gl]` instrumentation line reports `GL_VENDOR`/`GL_RENDERER` so any
-  machine's actual GPU routing is visible at a glance — run it on the Steam
-  Deck to see the Mesa driver path.
+  machine's actual GPU routing is visible at a glance.
+- **Steam Deck result**: total init **144.7ms** at 1440p — the fastest of all
+  four machines tested, via Mesa (radeonsi/RADV). Confirms the desktop's slow
+  startup is NVIDIA-ICD-specific, not our code.
+
+## Status: investigation on ice
+
+The black-screen fix is in and validated across four machines (desktop local,
+desktop RDP, laptop iGPU, Steam Deck). No further startup work is planned
+unless a new machine shows a problem.
+
+**Final instrumentation state** (kept deliberately light):
+- `[hw]` — one line, platform/cores/RAM/SIMD (harmless, useful forever)
+- `[gl]` — one line, `GL_VENDOR`/`GL_RENDERER`/`GL_VERSION` (reveals iGPU vs
+  dGPU routing and Mesa vs NVIDIA at a glance)
+- All other startup timers (`[win]`, `[probe]`, `[disp]`, `[ctx]`, `[init]`,
+  `[warmup]`, `[startup]`) were stripped once the investigation concluded.
 
 ## Repo state
 
@@ -205,13 +220,11 @@ driver cost.
 - Commit `b5aa426` ("feat: add hardware profile + GL vendor/renderer
   diagnostics, fine-grained init timing") added the `[hw]`, `[gl]` lines and
   the per-phase `[init]` breakdown.
-- Instrumentation tags in `make_imgui_app`: `[hw]`, `[win]`, `[probe]`,
-  `[disp]`, `[ctx]`, `[gl]`, `[init]`, `[warmup]`, `[startup]`.
+- Commit `<next>` strips the verbose instrumentation, keeping `[hw]` + `[gl]`.
 - The GL context is 3.3 core (the 4.5 experiment was reverted; it made no
   measurable difference).
-- When the investigation is concluded, strip the instrumentation but keep the
-  prime-swap + warm-up + hidden-window flow and the `.HIDDEN`/`ShowWindow`
-  pair.
+- The prime-swap + warm-up + hidden-window flow and the `.HIDDEN`/`ShowWindow`
+  pair are the final fix and stay in place.
 
 ## Files touched during the investigation
 
