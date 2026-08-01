@@ -203,20 +203,36 @@ make_imgui_app :: proc() {
 	}
 	defer sdl.Quit()
 
-	// OpenGL 4.5 core context — must be set before CreateWindow
-	// Using 4.5+ for better shader compilation and pipeline control
-	sdl.GL_SetAttribute(.CONTEXT_MAJOR_VERSION, 4)
-	sdl.GL_SetAttribute(.CONTEXT_MINOR_VERSION, 5)
+	// OpenGL 3.3 core context — must be set before CreateWindow
+	sdl.GL_SetAttribute(.CONTEXT_MAJOR_VERSION, 3)
+	sdl.GL_SetAttribute(.CONTEXT_MINOR_VERSION, 3)
 	sdl.GL_SetAttribute(.CONTEXT_PROFILE_MASK, i32(sdl.GL_CONTEXT_PROFILE_CORE))
 
 	t_win := time.tick_now()
 	window := sdl.CreateWindow("Schema Spelunker", 1600, 900, {.OPENGL, .RESIZABLE, .HIDDEN})
-	fmt.eprintfln("[win] CreateWindow: %.1fms", time.duration_seconds(time.tick_since(t_win)) * 1000)
+	fmt.eprintfln("[win] CreateWindow(OPENGL 3.3): %.1fms", time.duration_seconds(time.tick_since(t_win)) * 1000)
 	if window == nil {
 		fmt.eprintfln("SDL3 CreateWindow failed: %s", sdl.GetError())
 		return
 	}
 	defer sdl.DestroyWindow(window)
+
+	// --- experiment: is the OPENGL pixel-format setup the slow part? ---
+	{
+		t_plain := time.tick_now()
+		plain := sdl.CreateWindow("probe", 320, 200, {.HIDDEN})
+		plain_ms := time.duration_seconds(time.tick_since(t_plain)) * 1000
+		if plain != nil {
+			defer sdl.DestroyWindow(plain)
+		}
+		t_plain2 := time.tick_now()
+		plain2 := sdl.CreateWindow("probe2", 320, 200, {.HIDDEN})
+		plain2_ms := time.duration_seconds(time.tick_since(t_plain2)) * 1000
+		if plain2 != nil {
+			defer sdl.DestroyWindow(plain2)
+		}
+		fmt.eprintfln("[probe] plain window #1: %.1fms  #2: %.1fms", plain_ms, plain2_ms)
+	}
 
 	// --- display diagnostics ---
 	{
@@ -283,7 +299,7 @@ make_imgui_app :: proc() {
 	}
 	defer sdl_impl.Shutdown()
 
-	if !gl_impl.Init("#version 450 core") {
+	if !gl_impl.Init("#version 330 core") {
 		fmt.eprintln("ImGui OpenGL3 backend init failed")
 		return
 	}
