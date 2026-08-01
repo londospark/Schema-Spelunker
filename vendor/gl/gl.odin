@@ -16,6 +16,10 @@ foreign lib {
 	Clear      :: proc(mask: u32) ---
 	ClearColor :: proc(r, g, b, a: f32) ---
 	Finish     :: proc() ---
+	GetString  :: proc(name: u32) -> cstring ---
 }
 
 GL_COLOR_BUFFER_BIT :: 0x00004000
+GL_VENDOR           :: 0x1F00
+GL_RENDERER         :: 0x1F01
+GL_VERSION          :: 0x1F02

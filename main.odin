@@ -195,6 +195,16 @@ main :: proc() {
 
 make_imgui_app :: proc() {
 	t_init_start := time.tick_now()
+
+	// --- hardware profile (for comparing startup on different machines) ---
+	{
+		platform := sdl.GetPlatform()
+		rams := sdl.GetSystemRAM()
+		fmt.eprintfln("[hw] platform=%s cores=%d RAM=%dMB cacheline=%d sse4.1=%v avx2=%v avx512=%v",
+			platform, sdl.GetNumLogicalCPUCores(), rams, sdl.GetCPUCacheLineSize(),
+			sdl.HasSSE41(), sdl.HasAVX2(), sdl.HasAVX512F())
+	}
+
 	app_state: AppState
 	sdl.SetHint("SDL_HINT_IME_SHOW_UI", "1")
 	if !sdl.Init({.VIDEO}) {
@@ -264,6 +274,11 @@ make_imgui_app :: proc() {
 	// some GLX/EGL configurations despite being "adaptive".  We tried it.
 	// Instead we run uncapped and pace the loop ourselves with a sleep.
 
+	// Which GPU is actually driving the GL context? On laptops this reveals
+	// whether SDL got the iGPU or the discrete GPU (Optimus/dGPU routing).
+	fmt.eprintfln("[gl] vendor=%s renderer=%s version=%s",
+		gl.GetString(gl.GL_VENDOR), gl.GetString(gl.GL_RENDERER), gl.GetString(gl.GL_VERSION))
+
 	// Fire off the first swap to start any deferred driver work
 	// (swap chain buffer allocation, DWM registration), then DON'T wait
 	// for it yet — we'll overlap it with ImGui init.
@@ -280,17 +295,26 @@ make_imgui_app :: proc() {
 
 	ig.CreateContext()
 	defer ig.DestroyContext(nil)
+	t_imgui_ctx := time.duration_seconds(time.tick_since(t_imgui)) * 1000
+	ig_time := time.tick_now()
 
 	imn.CreateContext()
 	defer imn.DestroyContext(nil)
+	t_imn_ctx := time.duration_seconds(time.tick_since(ig_time)) * 1000
+	theme_time := time.tick_now()
+
 	if theme_data, theme_ok := parse_ssTheme("themes/paper_and_ink_light.ssTheme", context.temp_allocator); theme_ok {
 		apply_theme(theme_data)
 	}
+	t_theme := time.duration_seconds(time.tick_since(theme_time)) * 1000
+	font_time := time.tick_now()
 
 	io := ig.GetIO()
 	font_filename: cstring = "Roboto.ttf"
 	ascii_range := [?]ig.Wchar{32, 126, 0}
 	ig.FontAtlas_AddFontFromFileTTF(io.Fonts, font_filename, glyph_ranges = &ascii_range[0])
+	t_font := time.duration_seconds(time.tick_since(font_time)) * 1000
+	sdl_backend_time := time.tick_now()
 
 	// Init backends
 	if !sdl_impl.InitForOpenGL(window, gl_context) {
@@ -298,14 +322,20 @@ make_imgui_app :: proc() {
 		return
 	}
 	defer sdl_impl.Shutdown()
+	t_sdl_backend := time.duration_seconds(time.tick_since(sdl_backend_time)) * 1000
+	gl_backend_time := time.tick_now()
 
 	if !gl_impl.Init("#version 330 core") {
 		fmt.eprintln("ImGui OpenGL3 backend init failed")
 		return
 	}
 	defer gl_impl.Shutdown()
+	t_gl_backend := time.duration_seconds(time.tick_since(gl_backend_time)) * 1000
+
 	imgui_ms := time.duration_seconds(time.tick_since(t_imgui)) * 1000
-	fmt.eprintfln("[init] ImGui+backends init: %.1fms  (prime swap returned in %.1fms)", imgui_ms, prime_ms)
+
+	fmt.eprintfln("[init] breakdown: CreateContext=%.1fms ImNodesCtx=%.1fms theme=%.1fms font=%.1fms sdlBackend=%.1fms glBackend=%.1fms  total=%.1fms (prime swap ret=%.1fms)",
+		t_imgui_ctx, t_imn_ctx, t_theme, t_font, t_sdl_backend, t_gl_backend, imgui_ms, prime_ms)
 
 	io.ConfigFlags |= {.DockingEnable}
 
