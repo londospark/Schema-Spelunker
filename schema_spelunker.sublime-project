@@ -5,10 +5,13 @@
 			"path": ".",
 		},
 		{
-			"path": "X:\\Tools\\Odin"
+			"path": "X:\\Tools\\Odin",
 		},
 		{
-			"path": "/home/londo/.local/share/mise/installs/odin/dev-2026-07a"
+			"path": "/home/londo/.local/share/mise/installs/odin/dev-2026-07a",
+		},
+		{
+			"path": "/nix/store/ia5c5djwfzyml82ds17i29ap9p6rv697-odin-dev-2026-05/share"
 		},
 	],
 	"build_systems":
