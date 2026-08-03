@@ -2301,7 +2301,7 @@ foreign imguilib {
 	PushStyleColor :: proc(
 		idx: Col,
 		col: u32) ---
-	PushStyleColorVec4 :: proc(
+	PushStyleColorImVec4 :: proc(
 		idx: Col,
 		col: Vec4) ---
 	PopStyleColor :: proc(
@@ -2311,7 +2311,7 @@ foreign imguilib {
 		idx: StyleVar,
 		val: f32) ---
 	// modify a style ImVec2 variable. "
-	PushStyleVarVec2 :: proc(
+	PushStyleVarImVec2 :: proc(
 		idx: StyleVar,
 		val: Vec2) ---
 	// modify X component of a style ImVec2 variable. "

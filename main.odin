@@ -5,6 +5,7 @@ import "core:mem"
 import "core:strings"
 import "core:os"
 import "core:time"
+import c "core:c"
 import sqlite "vendor/sqlite3"
 import sdl "vendor:sdl3"
 import ig "vendor/imgui"
@@ -14,6 +15,11 @@ import gl_impl "vendor/imgui/backends/opengl3"
 import gl "vendor/gl"
 
 BUF_LEN :: 4096
+
+// Custom owner-drawn titlebar geometry (device pixels).
+WINDOW_BUTTON_WIDTH :: 40.0
+WINDOW_CONTROLS_WIDTH :: 3 * WINDOW_BUTTON_WIDTH
+
 FileDialog :: struct {
 	show: bool,
 	dirty: bool,
@@ -29,12 +35,27 @@ SchemaWindow :: struct {
 }
 
 AppState :: struct {
+	window: ^sdl.Window,
+
 	schema_name: string,
 	schema_dirty: bool,
 	schema: Schema,
 	file_dialog: FileDialog,
 	schema_window: SchemaWindow,
-	diagram_state: DiagramState
+	diagram_state: DiagramState,
+
+	// Titlebar window-control icons (PNG -> GL textures).
+	icon_min, icon_max, icon_restore, icon_close: ig.TextureRef,
+
+	// Actual height of the main menu bar (font-size driven), used to offset the
+	// dockspace below the titlebar and to size the window-control hit-test region.
+	titlebar_height: f32,
+
+	// Drag fallback used when the platform has no native hit-test (SetWindowHitTest).
+	drag_manual: bool,
+	drag_begin: bool,
+	drag_mouse_start: ig.Vec2,
+	drag_win_x, drag_win_y: i32,
 }
 
 DiagramState :: struct {
@@ -208,6 +229,176 @@ apply_theme_to_window :: proc(window: ^sdl.Window, theme_data: ThemeData) {
 	enable_os_blur(window, theme_data.backdrop)
 }
 
+// SDL hit-test: reports what a window region does. Returning DRAGGABLE for the
+// titlebar gives native HTCAPTION dragging on Windows (Aero Snap, drag-to-top
+// maximize, double-click maximize) and WM move on X11/Wayland. The resize edges
+// keep the borderless window resizable. `area` is in logical window coordinates,
+// so the pixel-based geometry is scaled back via the display scale factor.
+window_hit_test :: proc "c" (win: ^sdl.Window, area: ^sdl.Point, data: rawptr) -> sdl.HitTestResult {
+	as := (^AppState)(data)
+	border := c.int(4)
+
+	pw, ph: c.int
+	sdl.GetWindowSizeInPixels(win, &pw, &ph)
+	lw, lh: c.int
+	sdl.GetWindowSize(win, &lw, &lh)
+	scale := f32(pw) / f32(max(lw, 1))
+
+	titlebar := i32(0)
+	controls := i32(WINDOW_CONTROLS_WIDTH / scale)
+	if as != nil {
+		titlebar = i32(as.titlebar_height / scale)
+	}
+
+	x := area[0]
+	y := area[1]
+
+	if x < border && y < border { return .RESIZE_TOPLEFT }
+	if x >= lw - border && y < border { return .RESIZE_TOPRIGHT }
+	if x < border && y >= lh - border { return .RESIZE_BOTTOMLEFT }
+	if x >= lw - border && y >= lh - border { return .RESIZE_BOTTOMRIGHT }
+	if y < border { return .RESIZE_TOP }
+	if y >= lh - border { return .RESIZE_BOTTOM }
+	if x < border { return .RESIZE_LEFT }
+	if x >= lw - border { return .RESIZE_RIGHT }
+
+	if y < titlebar && x < lw - controls {
+		return .DRAGGABLE
+	}
+	return .NORMAL
+}
+
+// Create the docking host window below the owner-drawn titlebar.
+dock_space_below_titlebar :: proc(app_state: ^AppState) {
+	io := ig.GetIO()
+	h := app_state.titlebar_height
+	ig.SetNextWindowPos(ig.Vec2{0, h})
+	ig.SetNextWindowSize(ig.Vec2{io.DisplaySize.x, io.DisplaySize.y - h})
+
+	ig.PushStyleVar(.WindowRounding, 0.0)
+	ig.PushStyleVar(.WindowBorderSize, 0.0)
+	ig.PushStyleVarImVec2(.WindowPadding, ig.Vec2{0, 0})
+	defer ig.PopStyleVar(3)
+
+	if ig.Begin("##MainDockHost", flags = {
+		.NoTitleBar, .NoCollapse, .NoResize, .NoMove, .NoDocking, .NoBringToFrontOnFocus, .NoNavFocus,
+	}) {
+		ig.DockSpace(ig.GetID("MainDockSpace"), ig.GetContentRegionAvail())
+	}
+	ig.End()
+}
+
+TitleBarButtonAction :: enum { Minimize, Maximize, Restore, Close }
+
+// One titlebar window-control button. Renders the icon texture when loaded,
+// otherwise a plain text label (cross-platform fallback).
+titlebar_button :: proc(app_state: ^AppState, id: cstring, icon: ig.TextureRef, text_label: cstring, text_col: ig.Vec4, action: TitleBarButtonAction) {
+	clicked := false
+	if icon._TexID != 0 {
+		clicked = ig.ImageButton(id, icon, ig.Vec2{20, 20}, tint_col = text_col)
+	} else {
+		clicked = ig.Button(id, {WINDOW_BUTTON_WIDTH, app_state.titlebar_height})
+	}
+	if !clicked {
+		return
+	}
+	switch action {
+	case .Minimize:
+		sdl.MinimizeWindow(app_state.window)
+	case .Maximize:
+		sdl.MaximizeWindow(app_state.window)
+	case .Restore:
+		sdl.RestoreWindow(app_state.window)
+	case .Close:
+		ev: sdl.Event
+		ev.type = .QUIT
+		_ = sdl.PushEvent(&ev)
+	}
+}
+
+// Draw the owner-drawn titlebar via the main menu bar (always on top, full
+// width): title text + File/Theme menus on the left, minimize/
+// maximize-restore/close buttons pinned to the right edge.
+show_titlebar :: proc(app_state: ^AppState) {
+	io := ig.GetIO()
+	style := ig.GetStyle()
+
+	// Heighten the menu bar so it reads as a ~30px titlebar with the app's font.
+	ig.PushStyleVarY(.FramePadding, 9.0)
+	defer ig.PopStyleVar(1)
+	app_state.titlebar_height = ig.GetFrameHeight()
+
+	if ig.BeginMainMenuBar() {
+		ig.SetCursorPosX(8)
+		ig.TextUnformatted("Schema Spelunker")
+		ig.SameLine()
+
+		// Menus
+		if ig.BeginMenu("File") {
+			if ig.MenuItem("Open...") { app_state.file_dialog.show = true }
+			ig.EndMenu()
+		}
+		ig.SameLine()
+		if ig.BeginMenu("Theme") {
+			if ig.MenuItem("Light") {
+				if theme_data, theme_ok := parse_ssTheme("themes/paper_and_ink_light.ssTheme", context.temp_allocator); theme_ok {
+					apply_theme_to_window(app_state.window, theme_data)
+				}
+			}
+			if ig.MenuItem("Dark") {
+				if theme_data, theme_ok := parse_ssTheme("themes/paper_and_ink_dark.ssTheme", context.temp_allocator); theme_ok {
+					apply_theme_to_window(app_state.window, theme_data)
+				}
+			}
+			ig.EndMenu()
+		}
+
+		// Window controls pinned to the right edge.
+		text_col := style.Colors[ig.Col.Text]
+		icon_size := ig.Vec2{20, 20}
+		pad_x := (WINDOW_BUTTON_WIDTH - icon_size.x) / 2
+		pad_y := (app_state.titlebar_height - icon_size.y) / 2
+		ig.PushStyleVarImVec2(.FramePadding, ig.Vec2{pad_x, pad_y})
+		defer ig.PopStyleVar(1)
+
+		ig.SetCursorPosX(io.DisplaySize.x - WINDOW_CONTROLS_WIDTH)
+		titlebar_button(app_state, "##win_min", app_state.icon_min, "-", text_col, .Minimize)
+		ig.SameLine(0, 0)
+		flags := sdl.GetWindowFlags(app_state.window)
+		if .MAXIMIZED in flags {
+			titlebar_button(app_state, "##win_restore", app_state.icon_restore, "[ ]", text_col, .Restore)
+		} else {
+			titlebar_button(app_state, "##win_max", app_state.icon_max, "[]", text_col, .Maximize)
+		}
+		ig.SameLine(0, 0)
+		ig.PushStyleColorImVec4(.ButtonHovered, {0.85, 0.16, 0.16, 0.90})
+		ig.PushStyleColorImVec4(.ButtonActive, {0.95, 0.30, 0.30, 0.90})
+		titlebar_button(app_state, "##win_close", app_state.icon_close, "x", text_col, .Close)
+		ig.PopStyleColor(2)
+	}
+	ig.EndMainMenuBar()
+
+	// Manual drag fallback for platforms without native hit-test support.
+	if app_state.drag_manual {
+		mouse := ig.GetMousePos()
+		in_titlebar := mouse.y < app_state.titlebar_height && mouse.x < io.DisplaySize.x - WINDOW_CONTROLS_WIDTH
+		if in_titlebar {
+			if ig.IsMouseClicked(.Left) {
+				app_state.drag_begin = true
+				app_state.drag_mouse_start = mouse
+				sdl.GetWindowPosition(app_state.window, &app_state.drag_win_x, &app_state.drag_win_y)
+			}
+		}
+		if app_state.drag_begin && ig.IsMouseDragging(.Left, 0) {
+			delta := ig.Vec2{mouse.x - app_state.drag_mouse_start.x, mouse.y - app_state.drag_mouse_start.y}
+			sdl.SetWindowPosition(app_state.window, app_state.drag_win_x + i32(delta.x), app_state.drag_win_y + i32(delta.y))
+		}
+		if !ig.IsMouseDown(.Left) {
+			app_state.drag_begin = false
+		}
+	}
+}
+
 make_imgui_app :: proc() {
 	// --- hardware profile (for diagnosing startup on different machines) ---
 	{
@@ -234,12 +425,20 @@ make_imgui_app :: proc() {
 
 	// .TRANSPARENT is required for the OS-level blur: the window framebuffer
 	// gets an alpha channel, and the desktop shows through the clear colour.
-	window := sdl.CreateWindow("Schema Spelunker", 1600, 900, {.OPENGL, .RESIZABLE, .HIDDEN, .TRANSPARENT})
+	// .BORDERLESS removes the OS titlebar — we draw our own (show_titlebar).
+	window := sdl.CreateWindow("Schema Spelunker", 1600, 900, {.OPENGL, .RESIZABLE, .HIDDEN, .TRANSPARENT, .BORDERLESS})
 	if window == nil {
 		fmt.eprintfln("SDL3 CreateWindow failed: %s", sdl.GetError())
 		return
 	}
 	defer sdl.DestroyWindow(window)
+	app_state.window = window
+
+	// Native titlebar drag/snap via hit-test where the platform supports it
+	// (Windows HTCAPTION, X11/Wayland). Unsupported platforms return false and
+	// we fall back to manual dragging in show_titlebar.
+	hit_test_ok := sdl.SetWindowHitTest(window, window_hit_test, &app_state)
+	app_state.drag_manual = !hit_test_ok
 
 	gl_context := sdl.GL_CreateContext(window)
 	if gl_context == nil {
@@ -280,6 +479,13 @@ make_imgui_app :: proc() {
 		startup_backdrop = theme_data.backdrop
 	}
 
+	// Load the titlebar window-control icons (PNG -> GL textures).
+	// Failures are non-fatal: show_titlebar falls back to plain text buttons.
+	app_state.icon_min, _ = load_icon_texture("assets/icons/minimize.png")
+	app_state.icon_max, _ = load_icon_texture("assets/icons/maximize.png")
+	app_state.icon_restore, _ = load_icon_texture("assets/icons/restore.png")
+	app_state.icon_close, _ = load_icon_texture("assets/icons/close.png")
+
 	io := ig.GetIO()
 	font_filename: cstring = "Roboto.ttf"
 	ascii_range := [?]ig.Wchar{32, 126, 0}
@@ -305,10 +511,8 @@ make_imgui_app :: proc() {
 	gl_impl.NewFrame()
 	sdl_impl.NewFrame()
 	ig.NewFrame()
-	ig.DockSpaceOverViewport(viewport = ig.GetMainViewport())
-	if ig.BeginMainMenuBar() {
-		ig.EndMainMenuBar()
-	}
+	show_titlebar(&app_state)
+	dock_space_below_titlebar(&app_state)
 	ig.Render()
 	gl_impl.RenderDrawData(ig.GetDrawData())
 	sdl.GL_SwapWindow(window)
@@ -394,7 +598,8 @@ make_imgui_app :: proc() {
 		gl_impl.NewFrame()
 		sdl_impl.NewFrame()
 		ig.NewFrame()
-		ig.DockSpaceOverViewport(viewport = ig.GetMainViewport())
+		show_titlebar(&app_state)
+		dock_space_below_titlebar(&app_state)
 		{
 			defer ig.Render()
 			if app_state.file_dialog.show {
@@ -424,27 +629,6 @@ make_imgui_app :: proc() {
 			}
 
 			if app_state.schema_window.show do show_schema_window(&app_state)
-
-			if ig.BeginMainMenuBar() {
-				if ig.BeginMenu("File") {
-					if ig.MenuItem("Open...") do app_state.file_dialog.show = true
-					ig.EndMenu()
-				}
-				if ig.BeginMenu("Theme") {
-				if ig.MenuItem("Light") {
-					if theme_data, theme_ok := parse_ssTheme("themes/paper_and_ink_light.ssTheme", context.temp_allocator); theme_ok {
-						apply_theme_to_window(window, theme_data)
-					}
-				}
-				if ig.MenuItem("Dark") {
-					if theme_data, theme_ok := parse_ssTheme("themes/paper_and_ink_dark.ssTheme", context.temp_allocator); theme_ok {
-						apply_theme_to_window(window, theme_data)
-					}
-				}
-					ig.EndMenu()
-				}
-				ig.EndMainMenuBar()
-			}
 		}
 		// Transparent clear: the acrylic backdrop stays visible anywhere the UI
 		// doesn't cover, and semi-transparent panels blend with it.

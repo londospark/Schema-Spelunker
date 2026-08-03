@@ -246,3 +246,11 @@ disk.  See `docs/THEME_MIGRATION.md` for detailed plan.
 - [ ] `[M]` `[P1]` `[gui]` Custom title bar: borderless window
       (`SDL_SetWindowBordered(false)`) with client-side min/max/close + drag
       (WM_NCHITTEST HTCAPTION)
+- [x] `[M]` `[P1]` `[gui]` Owner-drawn titlebar: `.BORDERLESS` window, title +
+      File/Theme menus + min/max-restore/close buttons (Segoe MDL2 glyphs
+      rasterised to `assets/icons/*.png` by `tools/gen_icons.c`, decoded at
+      runtime via `vendor:stb/image`) in the main menu bar. Native drag/snap via
+      `SDL_SetWindowHitTest` (returns DRAGGABLE for the titlebar, resize edges
+      at the window border), manual `SetWindowPosition` fallback when the
+      platform lacks hit-test. Dockspace host offset below the titlebar.
+      Verified on Windows: min/max/restore/close + drag all work.
