@@ -51,6 +51,11 @@ AppState :: struct {
 	// dockspace below the titlebar and to size the window-control hit-test region.
 	titlebar_height: f32,
 
+	// Right edge (ImGui px) of the interactive menu area in the titlebar. The
+	// hit-test returns NORMAL here so menu clicks reach ImGui instead of starting
+	// a window drag.
+	titlebar_menu_end: f32,
+
 	// Drag fallback used when the platform has no native hit-test (SetWindowHitTest).
 	drag_manual: bool,
 	drag_begin: bool,
@@ -246,8 +251,10 @@ window_hit_test :: proc "c" (win: ^sdl.Window, area: ^sdl.Point, data: rawptr) -
 
 	titlebar := i32(0)
 	controls := i32(WINDOW_CONTROLS_WIDTH / scale)
+	menu_end := i32(0)
 	if as != nil {
 		titlebar = i32(as.titlebar_height / scale)
+		menu_end = i32(as.titlebar_menu_end / scale)
 	}
 
 	x := area[0]
@@ -262,6 +269,11 @@ window_hit_test :: proc "c" (win: ^sdl.Window, area: ^sdl.Point, data: rawptr) -
 	if x < border { return .RESIZE_LEFT }
 	if x >= lw - border { return .RESIZE_RIGHT }
 
+	// Interactive titlebar content (menus, window controls) must NOT be draggable
+	// — leave those to ImGui so clicks land on the widgets.
+	if y < titlebar && x < menu_end {
+		return .NORMAL
+	}
 	if y < titlebar && x < lw - controls {
 		return .DRAGGABLE
 	}
@@ -352,6 +364,7 @@ show_titlebar :: proc(app_state: ^AppState) {
 			}
 			ig.EndMenu()
 		}
+		app_state.titlebar_menu_end = ig.GetCursorPosX()
 
 		// Window controls pinned to the right edge.
 		text_col := style.Colors[ig.Col.Text]
