@@ -233,3 +233,16 @@ disk.  See `docs/THEME_MIGRATION.md` for detailed plan.
       `style.odin` (~440 lines moved)
 - [ ] `[S]` `[P2]` `[refactor]` Extract `rebuild_directory_listing` and
       `render_file_dialog` from `show_file_dialog` to reduce nesting depth
+- [x] `[M]` `[P1]` `[gui]` OS-level glass blur: transparent SDL3 window
+      (`.TRANSPARENT` + alpha-0 clear + `GL_ALPHA_SIZE=8`) with per-pixel alpha
+      via `DWMWA_REDIRECTIONBITMAP_ALPHA` (Win11 24H2+) + empty-region
+      `DwmEnableBlurBehindWindow` fallback, and theme-configurable backdrop
+      (`[glass] backdrop = "mica"|"acrylic"|"none"` -> `DWMWA_SYSTEMBACKDROP_TYPE`).
+      Implemented in `blur_windows.odin`, applied after window is shown.
+      Tuned: both themes acrylic, `backdrop_alpha 0.35` (docking host + child
+      windows stack their alpha, so the single-layer value must be well below
+      the target effective ~0.6). Mica is invisible on a light-mode system
+      (243 ≈ beige); acrylic (211) reads through.
+- [ ] `[M]` `[P1]` `[gui]` Custom title bar: borderless window
+      (`SDL_SetWindowBordered(false)`) with client-side min/max/close + drag
+      (WM_NCHITTEST HTCAPTION)

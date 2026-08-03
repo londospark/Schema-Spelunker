@@ -41,6 +41,9 @@ DiagramState :: struct {
 	seed_table: GlobalTableIndex,
 	show_from_seed_table: bool,
 	degrees: u8,
+
+	visible_tables: [dynamic]GlobalTableIndex,
+	dirty: bool,
 }
 
 DirectoryItemType :: enum {
@@ -149,6 +152,12 @@ collect_visible_tables :: proc(schema: ^Schema, state: DiagramState) -> (tables:
 	return
 }
 
+refresh_diagram_visible :: proc(schema: ^Schema, state: ^DiagramState) {
+	delete(state.visible_tables)
+	state.visible_tables = collect_visible_tables(schema, state^)
+	state.dirty = false
+}
+
 linked_tables :: proc(schema: ^Schema, table_idx: GlobalTableIndex) -> (tables: [dynamic]GlobalTableIndex) {
 	table := schema.tables[table_idx]
 	if table.has_foreign_keys {
@@ -192,6 +201,13 @@ main :: proc() {
 	}
 }
 
+// Apply an ImGui theme and (re)apply the OS backdrop material it requests.
+// enable_os_blur is idempotent, so this is safe on every theme switch.
+apply_theme_to_window :: proc(window: ^sdl.Window, theme_data: ThemeData) {
+	apply_theme(theme_data)
+	enable_os_blur(window, theme_data.backdrop)
+}
+
 make_imgui_app :: proc() {
 	// --- hardware profile (for diagnosing startup on different machines) ---
 	{
@@ -214,8 +230,11 @@ make_imgui_app :: proc() {
 	sdl.GL_SetAttribute(.CONTEXT_MAJOR_VERSION, 3)
 	sdl.GL_SetAttribute(.CONTEXT_MINOR_VERSION, 3)
 	sdl.GL_SetAttribute(.CONTEXT_PROFILE_MASK, i32(sdl.GL_CONTEXT_PROFILE_CORE))
+	sdl.GL_SetAttribute(.ALPHA_SIZE, 8) // needed for per-pixel alpha compositing
 
-	window := sdl.CreateWindow("Schema Spelunker", 1600, 900, {.OPENGL, .RESIZABLE, .HIDDEN})
+	// .TRANSPARENT is required for the OS-level blur: the window framebuffer
+	// gets an alpha channel, and the desktop shows through the clear colour.
+	window := sdl.CreateWindow("Schema Spelunker", 1600, 900, {.OPENGL, .RESIZABLE, .HIDDEN, .TRANSPARENT})
 	if window == nil {
 		fmt.eprintfln("SDL3 CreateWindow failed: %s", sdl.GetError())
 		return
@@ -255,8 +274,10 @@ make_imgui_app :: proc() {
 
 	imn.CreateContext()
 	defer imn.DestroyContext(nil)
+	startup_backdrop := BackdropType.Mica
 	if theme_data, theme_ok := parse_ssTheme("themes/paper_and_ink_light.ssTheme", context.temp_allocator); theme_ok {
 		apply_theme(theme_data)
+		startup_backdrop = theme_data.backdrop
 	}
 
 	io := ig.GetIO()
@@ -334,6 +355,11 @@ make_imgui_app :: proc() {
 	// Now that the GPU is warmed up, make it visible.
 	sdl.ShowWindow(window)
 
+	// DWM must see an alpha-capable pixel format AND a visible window before the
+	// transparency attributes take effect — SDL's .TRANSPARENT applies them too
+	// early, so we re-apply here after context + show.
+	enable_os_blur(window, startup_backdrop)
+
 	// Main loop
 	event: sdl.Event
 	running := true
@@ -407,12 +433,12 @@ make_imgui_app :: proc() {
 				if ig.BeginMenu("Theme") {
 				if ig.MenuItem("Light") {
 					if theme_data, theme_ok := parse_ssTheme("themes/paper_and_ink_light.ssTheme", context.temp_allocator); theme_ok {
-						apply_theme(theme_data)
+						apply_theme_to_window(window, theme_data)
 					}
 				}
 				if ig.MenuItem("Dark") {
 					if theme_data, theme_ok := parse_ssTheme("themes/paper_and_ink_dark.ssTheme", context.temp_allocator); theme_ok {
-						apply_theme(theme_data)
+						apply_theme_to_window(window, theme_data)
 					}
 				}
 					ig.EndMenu()
@@ -420,6 +446,10 @@ make_imgui_app :: proc() {
 				ig.EndMainMenuBar()
 			}
 		}
+		// Transparent clear: the acrylic backdrop stays visible anywhere the UI
+		// doesn't cover, and semi-transparent panels blend with it.
+		gl.ClearColor(0.0, 0.0, 0.0, 0.0)
+		gl.Clear(gl.GL_COLOR_BUFFER_BIT)
 		gl_impl.RenderDrawData(ig.GetDrawData())
 		sdl.GL_SwapWindow(window)
 

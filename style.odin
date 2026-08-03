@@ -10,6 +10,14 @@ import imn "vendor/imnodes"
 
 // --- Theme data structures ---
 
+// OS backdrop material for the window (Windows 11 DWM). Picked per theme so a
+// light theme can use subtle Mica while a dark theme uses frosted Acrylic.
+BackdropType :: enum {
+	Mica,    // DWMSBT_MAINWINDOW — opaque tint derived from wallpaper + theme
+	Acrylic, // DWMSBT_TRANSIENTWINDOW — see-through frosted glass
+	None,
+}
+
 ThemeData :: struct {
 	name: string,
 
@@ -48,6 +56,11 @@ ThemeData :: struct {
 
 	// [accent]
 	accent_colour: ig.Vec4,
+
+	// [glass]
+	backdrop:       BackdropType, // OS backdrop material (Mica / Acrylic / None)
+	backdrop_alpha: f32,          // translucency of window/chrome backdrops for OS-level blur
+	popup_alpha:    f32,          // menus and dropdowns stay nearer opaque for readability
 
 	// [layout]
 	corner_rounding:      f32,
@@ -144,6 +157,10 @@ default_theme_data :: proc() -> ThemeData {
 		grid_line = {0.85, 0.85, 0.82, 1.00},
 
 		accent_colour = {0.17, 0.34, 0.59, 1.00},
+
+		backdrop       = .Mica,
+		backdrop_alpha = 1.0,
+		popup_alpha    = 1.0,
 
 		corner_rounding      = 2.0,
 		scrollbar_size       = 14.0,
@@ -266,6 +283,19 @@ parse_ssTheme :: proc(filename: string, allocator: mem.Allocator) -> (ThemeData,
 			switch key {
 			case "colour": if v, v_ok := hex_to_vec4(raw_val); v_ok { data.accent_colour = v }
 			}
+		case "glass":
+			switch key {
+			case "backdrop":
+				switch strings.trim_space(strings.to_lower(raw_val, context.temp_allocator)) {
+				case "mica":    data.backdrop = .Mica
+				case "acrylic": data.backdrop = .Acrylic
+				case "none":    data.backdrop = .None
+				}
+			case "backdrop_alpha":
+				if v, v_ok := strconv.parse_f32(raw_val); v_ok { data.backdrop_alpha = v }
+			case "popup_alpha":
+				if v, v_ok := strconv.parse_f32(raw_val); v_ok { data.popup_alpha = v }
+			}
 		case "layout":
 			switch key {
 			case "corner_rounding":
@@ -338,6 +368,9 @@ apply_theme :: proc(data: ThemeData) {
 	accent := data.accent_colour
 	style := ig.GetStyle()
 
+	backdrop_alpha := clamp(data.backdrop_alpha, 0.0, 1.0)
+	popup_alpha := clamp(data.popup_alpha, 0.0, 1.0)
+
 	// Layout
 	style.WindowPadding        = {data.window_padding_x, data.window_padding_y}
 	style.FramePadding         = {data.frame_padding_x, data.frame_padding_y}
@@ -365,11 +398,11 @@ apply_theme :: proc(data: ThemeData) {
 	style.Colors[ig.Col.TextDisabled] = data.text_muted
 
 	// Backgrounds
-	style.Colors[ig.Col.WindowBg]         = data.bg_window
-	style.Colors[ig.Col.ChildBg]          = data.bg_child
-	style.Colors[ig.Col.PopupBg]          = data.bg_popup
-	style.Colors[ig.Col.MenuBarBg]        = data.title_bg
-	style.Colors[ig.Col.DockingEmptyBg]   = data.bg_window
+	style.Colors[ig.Col.WindowBg]         = vec4_with_alpha(data.bg_window, backdrop_alpha)
+	style.Colors[ig.Col.ChildBg]          = vec4_with_alpha(data.bg_child, backdrop_alpha)
+	style.Colors[ig.Col.PopupBg]          = vec4_with_alpha(data.bg_popup, popup_alpha)
+	style.Colors[ig.Col.MenuBarBg]        = vec4_with_alpha(data.title_bg, backdrop_alpha)
+	style.Colors[ig.Col.DockingEmptyBg]   = vec4_with_alpha(data.bg_window, backdrop_alpha)
 
 	// Borders
 	style.Colors[ig.Col.Border]            = data.border_main
@@ -384,9 +417,9 @@ apply_theme :: proc(data: ThemeData) {
 	style.Colors[ig.Col.FrameBgActive]   = data.ctrl_frame_active
 
 	// Title bars
-	style.Colors[ig.Col.TitleBg]          = data.title_bg
-	style.Colors[ig.Col.TitleBgActive]   = data.title_bg_focus
-	style.Colors[ig.Col.TitleBgCollapsed] = data.title_bg_faded
+	style.Colors[ig.Col.TitleBg]          = vec4_with_alpha(data.title_bg, backdrop_alpha)
+	style.Colors[ig.Col.TitleBgActive]   = vec4_with_alpha(data.title_bg_focus, backdrop_alpha)
+	style.Colors[ig.Col.TitleBgCollapsed] = vec4_with_alpha(data.title_bg_faded, backdrop_alpha)
 
 	// Accent-derived colours (alpha table from format spec)
 	style.Colors[ig.Col.CheckMark]         = accent
@@ -409,22 +442,22 @@ apply_theme :: proc(data: ThemeData) {
 	style.Colors[ig.Col.ModalWindowDimBg]  = {0, 0, 0, 0.50}
 
 	// Scrollbars
-	style.Colors[ig.Col.ScrollbarBg]          = data.bg_window
+	style.Colors[ig.Col.ScrollbarBg]          = vec4_with_alpha(data.bg_window, backdrop_alpha)
 	style.Colors[ig.Col.ScrollbarGrab]        = data.border_subtle
 	style.Colors[ig.Col.ScrollbarGrabHovered] = vec4_with_alpha(data.border_main, 0.87)
 	style.Colors[ig.Col.ScrollbarGrabActive]  = vec4_with_alpha(data.border_main, 0.75)
 
 	// Tables
-	style.Colors[ig.Col.TableHeaderBg]     = data.title_bg
+	style.Colors[ig.Col.TableHeaderBg]     = vec4_with_alpha(data.title_bg, backdrop_alpha)
 	style.Colors[ig.Col.TableRowBg]        = {0, 0, 0, 0}
 	style.Colors[ig.Col.TableRowBgAlt]     = {0, 0, 0, 0.03}
 
 	// Tabs
-	style.Colors[ig.Col.Tab]               = data.title_bg
+	style.Colors[ig.Col.Tab]               = vec4_with_alpha(data.title_bg, backdrop_alpha)
 	style.Colors[ig.Col.TabHovered]        = data.ctrl_frame
 	style.Colors[ig.Col.TabSelected]       = data.ctrl_frame
-	style.Colors[ig.Col.TabDimmed]         = data.title_bg
-	style.Colors[ig.Col.TabDimmedSelected] = data.bg_window
+	style.Colors[ig.Col.TabDimmed]         = vec4_with_alpha(data.title_bg, backdrop_alpha)
+	style.Colors[ig.Col.TabDimmedSelected] = vec4_with_alpha(data.bg_window, backdrop_alpha)
 
 	// ImNodes
 	imn.StyleColorsLight()
@@ -458,7 +491,7 @@ apply_theme :: proc(data: ThemeData) {
 	v = vec4_with_alpha(accent, 0.80)
 	imn_style.colors[imn.Col.BoxSelectorOutline]         = imn_col(v.x, v.y, v.z, v.w)
 
-	v = data.grid_bg
+	v = vec4_with_alpha(data.grid_bg, backdrop_alpha)
 	imn_style.colors[imn.Col.GridBackground]             = imn_col(v.x, v.y, v.z, v.w)
 	v = data.grid_line
 	imn_style.colors[imn.Col.GridLine]                   = imn_col(v.x, v.y, v.z, v.w)
