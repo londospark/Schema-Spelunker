@@ -45,7 +45,7 @@ AppState :: struct {
 	diagram_state: DiagramState,
 
 	// Titlebar window-control icons (PNG -> GL textures).
-	icon_min, icon_max, icon_restore, icon_close: ig.TextureRef,
+	icon_min, icon_max, icon_restore, icon_close, icon_folder, icon_page: ig.TextureRef,
 
 	// Actual height of the main menu bar (font-size driven), used to offset the
 	// dockspace below the titlebar and to size the window-control hit-test region.
@@ -234,11 +234,6 @@ apply_theme_to_window :: proc(window: ^sdl.Window, theme_data: ThemeData) {
 	enable_os_blur(window, theme_data.backdrop)
 }
 
-// SDL hit-test: reports what a window region does. Returning DRAGGABLE for the
-// titlebar gives native HTCAPTION dragging on Windows (Aero Snap, drag-to-top
-// maximize, double-click maximize) and WM move on X11/Wayland. The resize edges
-// keep the borderless window resizable. `area` is in logical window coordinates,
-// so the pixel-based geometry is scaled back via the display scale factor.
 window_hit_test :: proc "c" (win: ^sdl.Window, area: ^sdl.Point, data: rawptr) -> sdl.HitTestResult {
 	as := (^AppState)(data)
 	border := c.int(4)
@@ -498,6 +493,8 @@ make_imgui_app :: proc() {
 	app_state.icon_max, _ = load_icon_texture("assets/icons/maximize.png")
 	app_state.icon_restore, _ = load_icon_texture("assets/icons/restore.png")
 	app_state.icon_close, _ = load_icon_texture("assets/icons/close.png")
+	app_state.icon_folder, _ = load_icon_texture("assets/icons/folder.png")
+	app_state.icon_page, _ = load_icon_texture("assets/icons/page.png")
 
 	io := ig.GetIO()
 	font_filename: cstring = "Roboto.ttf"
@@ -774,6 +771,9 @@ show_file_dialog :: proc(app_state: ^AppState) -> (os_err: os.Error) {
 				switch item.type {
 				case .File:
 					
+					ig.AlignTextToFramePadding()
+					ig.ImageWithBg(app_state.icon_page, ig.Vec2{32, 32}, tint_col = style.Colors[ig.Col.Text])
+					ig.SameLine()
 					if ig.SelectableBoolPtr(item.name, &is_selected, {.AllowDoubleClick}) {
 						if ig.IsMouseDoubleClicked(.Left) {
 							delete(app_state.schema_name)
@@ -787,7 +787,10 @@ show_file_dialog :: proc(app_state: ^AppState) -> (os_err: os.Error) {
 					}
 
 				case .Directory:
-					if ig.SelectableBoolPtr(fmt.ctprint("[DIR]", item.name), &is_selected, {.AllowDoubleClick}) {
+					ig.AlignTextToFramePadding()
+					ig.ImageWithBg(app_state.icon_folder, ig.Vec2{32, 32}, tint_col = style.Colors[ig.Col.Text])
+					ig.SameLine()
+					if ig.SelectableBoolPtr(item.name, &is_selected, {.AllowDoubleClick}) {
 						if ig.IsMouseDoubleClicked(.Left) {
 							app_state.file_dialog.dirty = true
 							app_state.file_dialog.path_buffer = {}

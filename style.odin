@@ -5,8 +5,12 @@ import "core:mem"
 import "core:os"
 import "core:strings"
 import "core:strconv"
+import c "core:c"
+import gl "vendor/gl"
 import ig "vendor/imgui"
 import imn "vendor/imnodes"
+import stbi "vendor:stb/image"
+
 
 // --- Theme data structures ---
 
@@ -497,4 +501,39 @@ apply_theme :: proc(data: ThemeData) {
 	imn_style.colors[imn.Col.GridLine]                   = imn_col(v.x, v.y, v.z, v.w)
 	v = data.border_main
 	imn_style.colors[imn.Col.GridLinePrimary]            = imn_col(v.x, v.y, v.z, v.w)
+}
+
+load_icon_texture :: proc(path: string) -> (tex: ig.TextureRef, ok: bool) {
+	data, err := os.read_entire_file_from_path(path, context.allocator)
+	if err != os.ERROR_NONE {
+		return {}, false
+	}
+	defer delete(data)
+
+	w, h, channels: c.int
+	pixels := stbi.load_from_memory(raw_data(data), c.int(len(data)), &w, &h, &channels, 4)
+	if pixels == nil {
+		return {}, false
+	}
+	defer stbi.image_free(pixels)
+
+	if w <= 0 || h <= 0 {
+		return {}, false
+	}
+
+	id: u32
+	gl.GenTextures(1, &id)
+	if id == 0 {
+		return {}, false
+	}
+
+	gl.BindTexture(gl.GL_TEXTURE_2D, id)
+	gl.TexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
+	gl.TexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)
+	gl.TexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_CLAMP_TO_EDGE)
+	gl.PixelStorei(gl.GL_UNPACK_ALIGNMENT, 1)
+	gl.TexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA8, w, h, 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, pixels)
+
+	return ig.TextureRef{_TexID = ig.TextureID(u64(id))}, true
 }

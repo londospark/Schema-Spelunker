@@ -35,6 +35,8 @@ static IconSpec SPECS[] = {
 	{"maximize", 0xE922},
 	{"restore",  0xE923},
 	{"close",    0xE8BB},
+	{"folder",   0xF12B},
+	{"page",     0xE7C3}
 };
 
 static int render_glyph(stbtt_fontinfo *font, int codepoint, unsigned char *canvas) {
@@ -106,7 +108,7 @@ int main(void) {
 	_mkdir("assets");
 	_mkdir("assets/icons");
 
-	for (int i = 0; i < 4; ++i) {
+	for (int i = 0; i < 6; ++i) {
 		unsigned char canvas[ICON_SIZE * ICON_SIZE * 4] = {0};
 		if (!render_glyph(&font, SPECS[i].codepoint, canvas)) {
 			fprintf(stderr, "gen_icons: glyph %s failed\n", SPECS[i].name);
