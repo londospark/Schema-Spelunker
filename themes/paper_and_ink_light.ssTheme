@@ -39,6 +39,11 @@ line = "#D9D9D1"
 [accent]
 colour = "#2C5796"
 
+[glass]
+backdrop = "acrylic"
+backdrop_alpha = 0.35
+popup_alpha = 0.85
+
 [layout]
 corner_rounding = 2
 scrollbar_size = 14
