@@ -34,21 +34,34 @@ says otherwise.
 
 Early but building fast.
 
-**SQLite:** vendored as source (`vendor/sqlite3/sqlite3.c` amalgamation
-v3.48.0) instead of a binary `.dll`. Compiled to a static `.lib` on the
-first build. Schema introspection via `PRAGMA table_info` and
-`PRAGMA foreign_key_list` works on the command line.
+**Stack:** SDL3 (window + input), OpenGL 3.3 core (rendering), Dear ImGui
+(docking branch, C-ABI via dcimgui), ImNodes (ER diagram), SQLite
+(amalgamation, statically linked). Borderless window with an owner-drawn
+titlebar and optional OS glass blur on Windows.
 
-**GUI:** Dear ImGui v1.92.8-docking with full C-ABI bindings via
-dear_bindings-generated `dcimgui` + Capati/odin-imgui Odin bindings.
-rlImGui bridges raylib (windowing, input, rendering) to ImGui.
-ImNodes (nelarius/imnodes) is vendored and bound for the ER diagram
-node graph. Docking is enabled.
+**SQLite:** vendored as source (`vendor/sqlite3/sqlite3.c` amalgamation)
+instead of a binary `.dll`, compiled to a static `.lib` on the first build.
+Schema introspection via `PRAGMA table_info` / `PRAGMA foreign_key_list`.
 
-**Build:** all native dependencies (SQLite, ImGui, ImNodes, rlImGui) are
-compiled from source on the first build using MSVC, auto-detected via
-vswhere. No binary blobs in the repo. Subsequent builds are pure-Odin
-and take under a second.
+**Build:** all native dependencies (SQLite, ImGui, ImNodes, SDL3 backends)
+are compiled from source on the first build via MSVC (auto-detected with
+vswhere) or clang/mold in the Nix dev shell. No binary blobs in the repo.
+
+## Project layout
+
+```
+main.odin            app entry point, GUI loop, CLI schema dump
+style.odin           theme data + .ssTheme loader, ImGui/ImNodes styling
+blur_windows.odin    Windows glass blur (#+build windows)
+blur.odin            no-op blur shim for other platforms
+assets/              runtime resources: Roboto.ttf, icons/, themes/
+vendor/              vendored C sources + Odin bindings (sqlite3, imgui,
+                     sdl3_headers, gl, stb)
+docs/                design docs + C_STYLE_GUIDE.md, ODIN_STYLE_GUIDE.md
+test/                seed tools and SQL schema
+tools/               asset generators (gen_icons.odin)
+build.bat, build.sh  Windows / Linux build scripts
+```
 
 ## Building & running
 
@@ -95,29 +108,3 @@ seed.bat                         # creates seed.db from test/complex.sql
 schema_spelunker.exe seed.db     # explore it via CLI
 build.bat run                    # explore it via GUI
 ```
-
----
-
-## Architecture
-
-```
-vendor/
-├── sqlite3/
-│   ├── sqlite3.c / .h          SQLite amalgamation (compiled to .lib)
-│   └── sqlite3.odin            Odin FFI bindings
-├── imgui/
-│   ├── imgui.cpp / .h etc.     ImGui v1.92.8-docking source
-│   ├── dcimgui.h / .cpp        dear_bindings C wrapper (extern "C")
-│   ├── imgui.odin              Odin bindings from Capati/odin-imgui
-│   ├── imnodes.cpp / .h        ImNodes source
-│   ├── dcimnodes.h / .cpp      Hand-written ImNodes C wrapper
-│   └── imnodes.odin            Hand-written ImNodes Odin bindings
-└── rlimgui/
-    ├── rlImGui.cpp / .h        raylib→ImGui backend
-    ├── rlImGui.odin            Odin bindings
-    └── include/                raylib C headers (v6.0) for compilation
-```
-
-All C/C++ sources are compiled into a single static `.lib` by
-`_compile_libs.bat` when any of the `.lib` files are missing.
-Odin then links against these via `foreign import`.

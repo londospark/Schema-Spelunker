@@ -164,9 +164,9 @@ disk.  See `docs/THEME_MIGRATION.md` for detailed plan.
 - [x] `[S]` `[P2]` `[theme]` Step 5: Remove `Theme` enum, replace references
       with `ThemeData`
 - [x] `[M]` `[P2]` `[theme]` Step 6: Replace `set_theme` calls with
-      `parse_ssTheme("themes/paper_and_ink_light.ssTheme")` + `apply_theme`
+      `parse_ssTheme("assets/themes/paper_and_ink_light.ssTheme")` + `apply_theme`
 - [ ] `[M]` `[P1]` `[theme]` Step 7: Build Theme menu dynamically from
-      `discover_themes()` scan of `themes/*.ssTheme` — removes hardcoded
+      `discover_themes()` scan of `assets/themes/*.ssTheme` — removes hardcoded
       Light/Dark entries, user can drop custom `.ssTheme` files in the
       themes folder
 - [x] `[S]` `[P2]` `[theme]` Step 8: Delete unused helpers —

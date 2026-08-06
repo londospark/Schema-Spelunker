@@ -148,7 +148,7 @@ set_theme(&app_state, .Light)
 to:
 
 ```odin
-if data, ok := load_theme("themes/paper_and_ink_light.ssTheme"); ok {
+if data, ok := load_theme("assets/themes/paper_and_ink_light.ssTheme"); ok {
     apply_theme(&app_state, data)
 }
 ```
@@ -196,5 +196,5 @@ the executable.
 ## Future: `.ssConfig`
 
 The theme system is designed so that a future `.ssConfig` settings file
-can store a `theme = "themes/paper_and_ink_dark.ssTheme"` line, allowing
+can store a `theme = "assets/themes/paper_and_ink_dark.ssTheme"` line, allowing
 the application to restore the user's theme choice on next launch.

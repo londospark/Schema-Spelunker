@@ -4,16 +4,20 @@ SQLite schema browser. SDL3 + Dear ImGui + OpenGL 3.3.
 
 ## Project structure
 
-- `main.odin` — entry point, GUI loop, CLI schema dump
+- `main.odin` — app entry point, GUI loop, CLI schema dump
+- `style.odin` — theme data + `.ssTheme` loader, ImGui/ImNodes styling, icon texture loading
+- `blur_windows.odin` / `blur.odin` — Windows glass blur (`#+build windows`) + no-op shim for other platforms
+- `assets/` — runtime resources: Roboto font, window-control/file/folder icons, `.ssTheme` themes
 - `vendor/sqlite3/` — SQLite amalgamation build, Odin bindings
 - `vendor/imgui/` — Dear ImGui + ImNodes via dcimgui C wrapper, Odin bindings
 - `vendor/sdl3_headers/` — SDL3 C headers for dcimgui backend compilation
 - `vendor/gl/` — OpenGL 3.3 core bindings
-- `_compile_libs.bat` — builds vendor native libs (dcimgui.cpp, sqlite3.c, etc.)
-- `seed.bat` — builds + runs test/seed.odin to create a test database
-- `test/` — seed tool and SQL schema
-- `dark.rgs` — raygui style (legacy, kept)
-- `Roboto.ttf` — UI font
+- `_compile_libs.bat` / `_compile_libs.sh` — build vendor native libs (dcimgui.cpp, sqlite3.c, etc.)
+- `build.bat` / `build.sh` / `seed.bat` / `seed.sh` / `build_icons.bat` — build, run, and asset-gen scripts
+- `test/` — seed tools and SQL schema
+- `tools/` — asset generators (`gen_icons.odin`)
+- `docs/` — design docs and style guides (`C_STYLE_GUIDE.md`, `ODIN_STYLE_GUIDE.md`)
+- `flake.nix` / `.envrc` — Nix dev environment
 
 ## Build
 
@@ -85,12 +89,12 @@ SQLite schema browser. SDL3 + Dear ImGui + OpenGL 3.3.
 ## Current state
 
 - CLI path: `extract_database_information` prints schema to stdout (legacy, still works).
-- GUI path: SDL3 window + ImGui dockspace, menu bar with File > Open and Theme > Light/Dark.
-- Theme: Paper & Ink light and dark variants, factored into `set_common_elements` / `set_light_theme` / `set_dark_theme`.
-- File dialog: custom ImGui window with directory navigation, arena allocator per-frame listing, double-click navigation into subdirectories.
-- Font: Roboto.ttf loaded via `FontAtlas_AddFontFromFileTTF`.
-- ImNodes vendored but not wired yet.
-- Schema data model (typed structs + arena) not built yet — `extract_database_information` still couples extraction to printing.
+- GUI: SDL3 + ImGui dockspace, owner-drawn titlebar with window controls and OS glass blur (Windows), menu bar with File > Open and Theme > Light/Dark.
+- Theme: Paper & Ink light/dark loaded from `assets/themes/*.ssTheme` via `parse_ssTheme` / `apply_theme`.
+- File dialog: custom ImGui window with directory navigation, folder/file icons, magic-byte filter, arena allocator per-frame listing.
+- Font: Roboto loaded from `assets/Roboto.ttf` via `FontAtlas_AddFontFromFileTTF`.
+- Schema data model: typed structs + arena (`Schema`, `Table`, `Column`, `ForeignKey`) with FK resolution to `GlobalColumnIndex`.
+- Diagram: ImNodes node editor with one/two-degree buttons; visible-table BFS filtering not yet wired.
 
 ## TODO priority
 

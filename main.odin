@@ -348,12 +348,12 @@ show_titlebar :: proc(app_state: ^AppState) {
 		ig.SameLine()
 		if ig.BeginMenu("Theme") {
 			if ig.MenuItem("Light") {
-				if theme_data, theme_ok := parse_ssTheme("themes/paper_and_ink_light.ssTheme", context.temp_allocator); theme_ok {
+				if theme_data, theme_ok := parse_ssTheme("assets/themes/paper_and_ink_light.ssTheme", context.temp_allocator); theme_ok {
 					apply_theme_to_window(app_state.window, theme_data)
 				}
 			}
 			if ig.MenuItem("Dark") {
-				if theme_data, theme_ok := parse_ssTheme("themes/paper_and_ink_dark.ssTheme", context.temp_allocator); theme_ok {
+				if theme_data, theme_ok := parse_ssTheme("assets/themes/paper_and_ink_dark.ssTheme", context.temp_allocator); theme_ok {
 					apply_theme_to_window(app_state.window, theme_data)
 				}
 			}
@@ -482,7 +482,7 @@ make_imgui_app :: proc() {
 	imn.CreateContext()
 	defer imn.DestroyContext(nil)
 	startup_backdrop := BackdropType.Mica
-	if theme_data, theme_ok := parse_ssTheme("themes/paper_and_ink_light.ssTheme", context.temp_allocator); theme_ok {
+	if theme_data, theme_ok := parse_ssTheme("assets/themes/paper_and_ink_light.ssTheme", context.temp_allocator); theme_ok {
 		apply_theme(theme_data)
 		startup_backdrop = theme_data.backdrop
 	}
@@ -497,7 +497,7 @@ make_imgui_app :: proc() {
 	app_state.icon_page, _ = load_icon_texture("assets/icons/page.png")
 
 	io := ig.GetIO()
-	font_filename: cstring = "Roboto.ttf"
+	font_filename: cstring = "assets/Roboto.ttf"
 	ascii_range := [?]ig.Wchar{32, 126, 0}
 	ig.FontAtlas_AddFontFromFileTTF(io.Fonts, font_filename, glyph_ranges = &ascii_range[0])
 

@@ -34,10 +34,9 @@ if not exist build\imgui mkdir build\imgui
 
 set IMGUI=vendor\imgui
 set SDL3INC=vendor\sdl3_headers
-set VKINC=vendor\vulkan_headers
 
 set CFLAGS=/std:c++17 /O2 /MP /DIMGUI_ENABLE_DOCKING /DIMGUI_IMPL_API=
-set INC=/I%IMGUI% /I%IMGUI%\backends /I%SDL3INC% /I%VKINC%
+set INC=/I%IMGUI% /I%IMGUI%\backends /I%SDL3INC%
 
 cl /nologo %CFLAGS% /c %INC% ^
 	%IMGUI%\dcimgui.cpp ^
