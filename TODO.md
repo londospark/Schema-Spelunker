@@ -205,12 +205,12 @@ disk.  See `docs/THEME_MIGRATION.md` for detailed plan.
       to match `build.bat` semantics
 - [ ] `[S]` `[P2]` `[build]` Replace hardcoded two-position arg checks in
       `build.bat` and `build.sh` with a `shift` loop for arbitrary flag ordering
-- [x] `[S]` `[P2]` `[project]` Icon generator: `tools/gen_icons.c` rasterises
+- [x] `[S]` `[P2]` `[project]` Icon generator: `tools/gen_icons.odin` rasterises
       Segoe MDL2 window-control glyphs to `assets/icons/*.png` (committed).
-      It's C, not Odin, because consecutive stb_truetype rasterise calls crash
-      this Odin dev build (dev-2026-07) through its foreign-call ABI — works in
-      pure C; `vendor:stb/truetype` has the same bug. Avoid adding float-heavy
-      stb foreign calls to the app until Odin is bumped.
+      Ported from C on 2026-08-06: the dev-2026-07 foreign-call ABI crash on
+      consecutive stb_truetype rasterise calls is fixed on dev-2026-08
+      (verified with a 6-glyph repro). Glyph source remains Windows-only
+      (Segoe MDL2 font); committed PNGs keep the runtime cross-platform.
 - [ ] `[S]` `[P2]` `[build]` Cross-platform smoke test for the owner-drawn
       titlebar on Linux/macOS (Nix shell): drag fallback path, vendor:stb/image
       PNG decode, borderless window — Windows verified only so far
@@ -262,7 +262,7 @@ disk.  See `docs/THEME_MIGRATION.md` for detailed plan.
       below, done via `SDL_SetWindowHitTest` DRAGGABLE instead
 - [x] `[M]` `[P1]` `[gui]` Owner-drawn titlebar: `.BORDERLESS` window, title +
       File/Theme menus + min/max-restore/close buttons (Segoe MDL2 glyphs
-      rasterised to `assets/icons/*.png` by `tools/gen_icons.c`, decoded at
+      rasterised to `assets/icons/*.png` by `tools/gen_icons.odin`, decoded at
       runtime via `vendor:stb/image`) in the main menu bar. Native drag/snap via
       `SDL_SetWindowHitTest` (returns DRAGGABLE for the titlebar, resize edges
       at the window border), manual `SetWindowPosition` fallback when the

@@ -1,5 +1,8 @@
 @echo off
+setlocal
 
-cl /nologo /O2 /W4 /WX /I vendor/imgui /I vendor/stb tools/gen_icons.c /Fe:bin/gen_icons.exe
+if not exist bin mkdir bin
 
-bin/gen_icons.exe
+call odin build tools\gen_icons.odin -file -out:"bin\gen_icons.exe" -vet || exit /b 1
+
+bin\gen_icons.exe

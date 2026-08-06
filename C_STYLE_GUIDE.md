@@ -16,9 +16,11 @@ C code style for this repo. Modeled on Casey Muratori's Handmade Hero
   `memory_index` so no `size_t`-comparison cast is needed.
 - Never cast unless a type truly requires it (e.g. a lib function returns
   `long`); prefer declaring the variable as the right type instead.
-- The C standard library is allowed as a one-off exception in `gen_icons.c`
-  (`FILE`, `fopen_s`, `ftell`, etc.). This tool is standalone C; the app
-  itself is Odin.
+- The C standard library is allowed as a one-off exception in one-shot tools
+  (`FILE`, `fopen_s`, `ftell`, etc.). No such first-party C remains as of
+  2026-08-06 (`gen_icons.c` was ported to Odin — the dev-2026-07 foreign-call
+  ABI crash that forced C is fixed on dev-2026-08); this guide still applies
+  to any future C code in the repo.
 - Security: use the MSVC secure-CRT `_s` variants where they exist
   (`fopen_s`), never the deprecated `fopen`/`sprintf`. `#define
   _CRT_SECURE_NO_WARNINGS` at the top so MSVC's `/W4` secure-CRT
