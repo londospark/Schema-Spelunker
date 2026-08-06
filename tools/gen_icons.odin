@@ -32,10 +32,10 @@ IconSpec :: struct {
 GLOBAL_SPECS := []IconSpec{
 	{name = "minimize", codepoint = 0xE921},
 	{name = "maximize", codepoint = 0xE922},
-	{name = "restore", codepoint = 0xE923},
-	{name = "close", codepoint = 0xE8BB},
-	{name = "folder", codepoint = 0xF12B},
-	{name = "page", codepoint = 0xE7C3},
+	{name = "restore",  codepoint = 0xE923},
+	{name = "close",    codepoint = 0xE8BB},
+	{name = "folder",   codepoint = 0xF12B},
+	{name = "page",     codepoint = 0xE7C3},
 }
 
 render_glyph :: proc(font: ^stbtt.fontinfo, codepoint: rune, canvas: []u8) -> bool {
