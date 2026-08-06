@@ -19,8 +19,10 @@ Legend: `[S/M/L]` = size · `[P0/P1/P2]` = priority · `[cat]` = category
       `pragma_table_info`
 - [x] `[S]` `[P2]` `[data]` Remove `@Todo` on `database_name` — currently cloned
       from filename, confirm that's the right lifetime
-- [ ] `[S]` `[P2]` `[data]` Avoid duplicate schema load in GUI double-click handler
-      (`print_database_information` re-calls `extract_database_information`)
+- [x] `[S]` `[P2]` `[data]` Avoid duplicate schema load in GUI double-click handler
+      (`print_database_information` re-calls `extract_database_information`) —
+      double-click now sets `schema_dirty` and the main loop loads once;
+      `print_database_information` is CLI-only
 
 ## If needed later
 
@@ -110,7 +112,9 @@ Phased implementation of the filtered sub-diagram view with FK link lanes.
 - [x] `[S]` `[P0]` `[gui]` Wire "One Degree" / "Two Degrees" / "Show All" buttons
       to set `diagram_state.degrees` and `show_from_seed_table`
 - [ ] `[M]` `[P0]` `[gui]` BFS over FK graph from seed table, collecting
-      visible table indices within N degrees. Handle N=0/all as full set
+      visible table indices within N degrees. Handle N=0/all as full set —
+      `collect_visible_tables` is written but NOT wired: `DiagramState.visible_tables`
+      + `refresh_diagram_visible` are dead code, degree buttons do nothing visible
 - [ ] `[M]` `[P0]` `[gui]` Render only visible nodes in `show_node_editor`
       (existing node drawing, just filtered)
 - [ ] `[M]` `[P0]` `[gui]` Draw FK links: loop `schema.foreign_keys`, call
@@ -201,6 +205,15 @@ disk.  See `docs/THEME_MIGRATION.md` for detailed plan.
       to match `build.bat` semantics
 - [ ] `[S]` `[P2]` `[build]` Replace hardcoded two-position arg checks in
       `build.bat` and `build.sh` with a `shift` loop for arbitrary flag ordering
+- [x] `[S]` `[P2]` `[project]` Icon generator: `tools/gen_icons.c` rasterises
+      Segoe MDL2 window-control glyphs to `assets/icons/*.png` (committed).
+      It's C, not Odin, because consecutive stb_truetype rasterise calls crash
+      this Odin dev build (dev-2026-07) through its foreign-call ABI — works in
+      pure C; `vendor:stb/truetype` has the same bug. Avoid adding float-heavy
+      stb foreign calls to the app until Odin is bumped.
+- [ ] `[S]` `[P2]` `[build]` Cross-platform smoke test for the owner-drawn
+      titlebar on Linux/macOS (Nix shell): drag fallback path, vendor:stb/image
+      PNG decode, borderless window — Windows verified only so far
 - [x] `[S]` `[P2]` `[project]` Add huge_seed tool (`test/huge_seed.odin`) for
       generating large test databases (2000 tables, random FKs). Build via
       `seed.bat huge`.
@@ -243,9 +256,10 @@ disk.  See `docs/THEME_MIGRATION.md` for detailed plan.
       windows stack their alpha, so the single-layer value must be well below
       the target effective ~0.6). Mica is invisible on a light-mode system
       (243 ≈ beige); acrylic (211) reads through.
-- [ ] `[M]` `[P1]` `[gui]` Custom title bar: borderless window
+- [x] `[M]` `[P1]` `[gui]` Custom title bar: borderless window
       (`SDL_SetWindowBordered(false)`) with client-side min/max/close + drag
-      (WM_NCHITTEST HTCAPTION)
+      (WM_NCHITTEST HTCAPTION) — superseded by the owner-drawn titlebar entry
+      below, done via `SDL_SetWindowHitTest` DRAGGABLE instead
 - [x] `[M]` `[P1]` `[gui]` Owner-drawn titlebar: `.BORDERLESS` window, title +
       File/Theme menus + min/max-restore/close buttons (Segoe MDL2 glyphs
       rasterised to `assets/icons/*.png` by `tools/gen_icons.c`, decoded at
