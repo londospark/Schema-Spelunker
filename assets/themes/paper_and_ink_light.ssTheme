@@ -40,9 +40,9 @@ line = "#D9D9D1"
 colour = "#2C5796"
 
 [glass]
-backdrop = "acrylic"
-backdrop_alpha = 0.35
-popup_alpha = 0.85
+backdrop = "mica"
+backdrop_alpha = 0.65
+popup_alpha = 1.0
 
 [layout]
 corner_rounding = 2

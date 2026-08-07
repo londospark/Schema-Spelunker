@@ -15,7 +15,8 @@ import stbi "vendor:stb/image"
 // --- Theme data structures ---
 
 // OS backdrop material for the window (Windows 11 DWM). Picked per theme so a
-// light theme can use subtle Mica while a dark theme uses frosted Acrylic.
+// light theme can use subtle Mica while a dark theme uses solid Mica; both
+// themes currently use Mica (see TODO tuning note).
 BackdropType :: enum {
 	Mica,    // DWMSBT_MAINWINDOW — opaque tint derived from wallpaper + theme
 	Acrylic, // DWMSBT_TRANSIENTWINDOW — see-through frosted glass

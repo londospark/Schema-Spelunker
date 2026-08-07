@@ -252,10 +252,11 @@ disk.  See `docs/THEME_MIGRATION.md` for detailed plan.
       `DwmEnableBlurBehindWindow` fallback, and theme-configurable backdrop
       (`[glass] backdrop = "mica"|"acrylic"|"none"` -> `DWMWA_SYSTEMBACKDROP_TYPE`).
       Implemented in `blur_windows.odin`, applied after window is shown.
-      Tuned: both themes acrylic, `backdrop_alpha 0.35` (docking host + child
-      windows stack their alpha, so the single-layer value must be well below
-      the target effective ~0.6). Mica is invisible on a light-mode system
-      (243 ≈ beige); acrylic (211) reads through.
+      Tuned: both themes Mica — light `backdrop_alpha 0.65` (subtle paper
+      tint, effective ~0.87 after dock-host + child alpha stacking), dark
+      `backdrop_alpha 1.0` (pixel-exact opaque). Original acrylic @ 0.35 let
+      the desktop show through 65%, washing out the light paper and muddying
+      dark; Mica reads through reliably on both light and dark systems.
 - [x] `[M]` `[P1]` `[gui]` Custom title bar: borderless window
       (`SDL_SetWindowBordered(false)`) with client-side min/max/close + drag
       (WM_NCHITTEST HTCAPTION) — superseded by the owner-drawn titlebar entry
