@@ -1,0 +1,9 @@
+{
+  "format_on_save": "on",
+  "inlay_hints": {
+    "enabled": true
+  },
+  "document_symbols": "off",
+  "document_folding_ranges": "on",
+  "semantic_tokens": "combined"
+}

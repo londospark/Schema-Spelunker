@@ -5,6 +5,9 @@ SQLite schema browser. SDL3 + Dear ImGui + OpenGL 3.3.
 ## Project structure
 
 - `main.odin` — app entry point, GUI loop, CLI schema dump
+- `schema_load.odin` — database-format abstraction: `Backend` (detect/open/close
+  - neutral row listers), shared `load_schema` builder, SQLite backend
+    (MSSQL/Postgres backends to come — add entries to `BACKENDS`)
 - `style.odin` — theme data + `.ssTheme` loader, ImGui/ImNodes styling, icon texture loading
 - `blur_windows.odin` / `blur.odin` — Windows glass blur (`#+build windows`) + no-op shim for other platforms
 - `assets/` — runtime resources: Roboto font, window-control/file/folder icons, `.ssTheme` themes
@@ -14,6 +17,7 @@ SQLite schema browser. SDL3 + Dear ImGui + OpenGL 3.3.
 - `vendor/gl/` — OpenGL 3.3 core bindings
 - `_compile_libs.bat` / `_compile_libs.sh` — build vendor native libs (dcimgui.cpp, sqlite3.c, etc.)
 - `build.bat` / `build.sh` / `seed.bat` / `seed.sh` / `build_icons.bat` — build, run, and asset-gen scripts
+- `.zed/tasks.json` / `.zed/debug.json` — Zed editor tasks (build/run/debug/release/clean/seed for Windows + Linux) and CodeLLDB launch configs (Windows + Linux)
 - `test/` — seed tools and SQL schema
 - `tools/` — asset generators (`gen_icons.odin`)
 - `docs/` — design docs and style guides (`C_STYLE_GUIDE.md`, `ODIN_STYLE_GUIDE.md`)
@@ -59,7 +63,7 @@ SQLite schema browser. SDL3 + Dear ImGui + OpenGL 3.3.
 - **Prefer clear naming over comments.** A well-named type or variable should make
   its purpose obvious without a comment. For example, `GlobalColumnIndex` is better
   than `ColumnIndex // global index into schema.columns`. When a comment is needed,
-  it should explain *why*, not *what* or *where*.
+  it should explain _why_, not _what_ or _where_.
 
 ## Communication rules
 
@@ -70,6 +74,10 @@ SQLite schema browser. SDL3 + Dear ImGui + OpenGL 3.3.
 - **Explain tradeoffs.** If I ask about approach A vs B, give pros/cons and a recommendation, but let me decide.
 - **Read the full file before editing.** Don't assume structure.
 - **Never guess APIs.** Check vendor bindings, `odin doc`, or the core library before suggesting function names. Bad guesses waste time.
+
+## General Rules
+
+- **Always obey the .ignore file.** Even if you know a path, don't read/write to an ignored file.
 
 ## Commit rules
 
@@ -88,13 +96,34 @@ SQLite schema browser. SDL3 + Dear ImGui + OpenGL 3.3.
 
 ## Current state
 
-- CLI path: `extract_database_information` prints schema to stdout (legacy, still works).
-- GUI: SDL3 + ImGui dockspace, owner-drawn titlebar with window controls and OS glass blur (Windows), menu bar with File > Open and Theme > Light/Dark.
-- Theme: Paper & Ink light/dark loaded from `assets/themes/*.ssTheme` via `parse_ssTheme` / `apply_theme`.
-- File dialog: custom ImGui window with directory navigation, folder/file icons, magic-byte filter, arena allocator per-frame listing.
-- Font: Roboto loaded from `assets/Roboto.ttf` via `FontAtlas_AddFontFromFileTTF`.
-- Schema data model: typed structs + arena (`Schema`, `Table`, `Column`, `ForeignKey`) with FK resolution to `GlobalColumnIndex`.
-- Diagram: ImNodes node editor with one/two-degree buttons; visible-table BFS filtering not yet wired.
+- CLI path: `print_database_information` dumps schema to stdout via `load_schema` (legacy, still works).
+- GUI: SDL3 + ImGui dockspace, owner-drawn titlebar with window controls and OS glass blur (Windows), menu bar with File > Open and a Theme menu built from a live scan of `assets/themes/*.ssTheme` — each file's `name` tag is the menu label, so a dropped-in theme file extends the menu with no code change.
+- Theme: Paper & Ink light/dark + OLED Dark loaded from `assets/themes/*.ssTheme` via `parse_ssTheme` / `apply_theme`.
+- File dialog: custom ImGui window with directory navigation, folder/file icons, magic-byte filter (backend-driven via `known_database_format`), arena allocator per-frame listing.
+- Font: Roboto loaded from `assets/Roboto.ttf` via `FontAtlas_AddFontFromFileTTF`; the bold weight (`assets/Roboto-Bold.ttf`) pushes the diagram node title text.
+- Schema data model: typed structs + arena (`Schema`, `Table`, `Column`, `ForeignKey`) with FK resolution to `GlobalColumnIndex`. Loaded through the `Backend` abstraction in `schema_load.odin`; SQLite is the only backend so far.
+- Diagram: ImNodes node editor; One/Two Degree buttons (also shown in the
+  schema list, acting on the selection) run a BFS over the FK graph from the
+  seed table and filter visible nodes, Show All restores the full set; FK
+  links drawn between visible endpoint tables (pin ids = `GlobalColumnIndex`,
+  link ids = FK schema index; pin shapes double as cardinality markers —
+  filled triangle on the referencing "many" end, filled circle on the
+  referenced "one" end). Opening a database defaults to One Degree from the
+  first table. A click (release without drag) on a table in the diagram or
+  the schema list retargets the seed (accent-tinted title bar marks it);
+  dragging a node only moves it. Seed-centred radial layout runs on every
+  view change: the seed sits at the origin, other tables on rings matching
+  their FK hop distance (children ordered near their parent, ring radius
+  grows with ring size, unreachable tables outermost). Positions are cached
+  and mirrored back from ImNodes each frame (drags persist within a view),
+  and a refresh with an unchanged seed + visible set is skipped, so
+  re-clicking the active table costs nothing. Whenever the view re-lays out,
+  the editor pans so the seed sits at the centre of the viewport
+  (`EditorContextResetPanning`, exported via the dcimnodes wrapper).
+- Debugging: Zed debugger (DAP) via `.zed/debug.json` — CodeLLDB adapter
+  launches the debug build (the per-OS Debug task runs `build.bat debug` /
+  `build.sh debug` first); press F4 (`debugger: start`) for the new-process
+  modal.
 
 ## TODO priority
 

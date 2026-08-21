@@ -1,0 +1,76 @@
+[
+  {
+    "label": "Build (Windows)",
+    "command": "cmd",
+    "args": ["/C", "build.bat"],
+    "allow_concurrent_runs": true,
+  },
+  {
+    "label": "Run (Windows)",
+    "command": "cmd",
+    "args": ["/C", "build.bat", "run"],
+    "allow_concurrent_runs": true,
+  },
+  {
+    "label": "Debug (Windows)",
+    "command": "cmd",
+    "args": ["/C", "build.bat", "debug"],
+  },
+  {
+    "label": "Release (Windows)",
+    "command": "cmd",
+    "args": ["/C", "build.bat", "release"],
+  },
+  {
+    "label": "Clean (Windows)",
+    "command": "cmd",
+    "args": ["/C", "build.bat", "clean"],
+  },
+  {
+    "label": "Seed (Windows)",
+    "command": "cmd",
+    "args": ["/C", "seed.bat"],
+  },
+  {
+    "label": "Seed Huge (Windows)",
+    "command": "cmd",
+    "args": ["/C", "seed.bat", "huge"],
+  },
+  {
+    "label": "Build (Linux)",
+    "command": "~/.nix-profile/bin/nix",
+    "args": ["develop", ".", "--command", "./build.sh"],
+    "allow_concurrent_runs": true,
+  },
+  {
+    "label": "Run (Linux)",
+    "command": "~/.nix-profile/bin/nix",
+    "args": ["develop", ".", "--command", "./build.sh", "run"],
+    "allow_concurrent_runs": true,
+  },
+  {
+    "label": "Debug (Linux)",
+    "command": "~/.nix-profile/bin/nix",
+    "args": ["develop", ".", "--command", "./build.sh", "debug"],
+  },
+  {
+    "label": "Release (Linux)",
+    "command": "~/.nix-profile/bin/nix",
+    "args": ["develop", ".", "--command", "./build.sh", "release"],
+  },
+  {
+    "label": "Clean (Linux)",
+    "command": "~/.nix-profile/bin/nix",
+    "args": ["develop", ".", "--command", "./build.sh", "clean"],
+  },
+  {
+    "label": "Seed (Linux)",
+    "command": "~/.nix-profile/bin/nix",
+    "args": ["develop", ".", "--command", "./seed.sh"],
+  },
+  {
+    "label": "Seed Huge (Linux)",
+    "command": "~/.nix-profile/bin/nix",
+    "args": ["develop", ".", "--command", "./seed.sh", "huge"],
+  },
+]

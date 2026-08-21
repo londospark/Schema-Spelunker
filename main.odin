@@ -1,18 +1,18 @@
 package main
 
-import "core:fmt"
-import "core:mem"
-import "core:strings"
-import "core:os"
-import "core:time"
 import c "core:c"
-import sqlite "vendor/sqlite3"
-import sdl "vendor:sdl3"
+import "core:fmt"
+import "core:math"
+import "core:mem"
+import "core:os"
+import "core:strings"
+import "core:time"
+import gl "vendor/gl"
 import ig "vendor/imgui"
-import imn "vendor/imnodes"
 import sdl_impl "vendor/imgui/backends"
 import gl_impl "vendor/imgui/backends/opengl3"
-import gl "vendor/gl"
+import imn "vendor/imnodes"
+import sdl "vendor:sdl3"
 
 BUF_LEN :: 4096
 
@@ -21,117 +21,150 @@ WINDOW_BUTTON_WIDTH :: 40.0
 WINDOW_CONTROLS_WIDTH :: 3 * WINDOW_BUTTON_WIDTH
 
 FileDialog :: struct {
-	show: bool,
-	dirty: bool,
-	selected_file: i32,
-	path_buffer: [BUF_LEN]u8,
+	show:            bool,
+	dirty:           bool,
+	selected_file:   i32,
+	path_buffer:     [BUF_LEN]u8,
 	items_in_folder: [dynamic]DirectoryItem,
-	arena: mem.Dynamic_Arena
+	arena:           mem.Dynamic_Arena,
 }
 
 SchemaWindow :: struct {
-	show: bool,
-	selected_table: i32
+	show:           bool,
+	selected_table: i32,
 }
 
 AppState :: struct {
-	window: ^sdl.Window,
-
-	schema_name: string,
-	schema_dirty: bool,
-	schema: Schema,
-	file_dialog: FileDialog,
-	schema_window: SchemaWindow,
-	diagram_state: DiagramState,
+	window:                                                               ^sdl.Window,
+	schema_name:                                                          string,
+	schema_dirty:                                                         bool,
+	schema:                                                               Schema,
+	file_dialog:                                                          FileDialog,
+	schema_window:                                                        SchemaWindow,
+	diagram_state:                                                        DiagramState,
 
 	// Titlebar window-control icons (PNG -> GL textures).
 	icon_min, icon_max, icon_restore, icon_close, icon_folder, icon_page: ig.TextureRef,
 
+	// Bold weight of the UI font, used for diagram node titles.
+	font_bold:                                                            ^ig.Font,
+
 	// Actual height of the main menu bar (font-size driven), used to offset the
 	// dockspace below the titlebar and to size the window-control hit-test region.
-	titlebar_height: f32,
+	titlebar_height:                                                      f32,
 
 	// Right edge (ImGui px) of the interactive menu area in the titlebar. The
 	// hit-test returns NORMAL here so menu clicks reach ImGui instead of starting
 	// a window drag.
-	titlebar_menu_end: f32,
+	titlebar_menu_end:                                                    f32,
 
 	// Drag fallback used when the platform has no native hit-test (SetWindowHitTest).
-	drag_manual: bool,
-	drag_begin: bool,
-	drag_mouse_start: ig.Vec2,
-	drag_win_x, drag_win_y: i32,
+	drag_manual:                                                          bool,
+	drag_begin:                                                           bool,
+	drag_mouse_start:                                                     ig.Vec2,
+	drag_win_x, drag_win_y:                                               i32,
+}
+
+DiagramLayoutKey :: struct {
+	seed:        GlobalTableIndex,
+	visible_sum: u64,
 }
 
 DiagramState :: struct {
-	seed_table: GlobalTableIndex,
-	show_from_seed_table: bool,
-	degrees: u8,
+	seed_table:             GlobalTableIndex,
+	show_from_seed_table:   bool,
+	degrees:                u8,
+	visible_tables:         [dynamic]GlobalTableIndex,
 
-	visible_tables: [dynamic]GlobalTableIndex,
-	dirty: bool,
+	// Request the seed node be selected in the node editor on the next frame.
+	// Selection must wait until the node has been rendered (ImNodes asserts
+	// SelectNode on a node that isn't in its pool), so retargets from the
+	// schema list or a fresh schema load set this instead of selecting now.
+	pending_seed_selection: bool,
+
+	// Which seed + visible set the current layout was computed for; a refresh
+	// with an unchanged view keeps the positions (and any drags).
+	layout_key:             DiagramLayoutKey,
+
+	// Grid-space positions of every table that has been shown, keyed by table
+	// index. Mirrored from ImNodes every frame (drags included) so the layout
+	// only changes when the view (seed or visible set) changes.
+	layout:                 map[GlobalTableIndex]ig.Vec2,
+
+	// Set when the visible set was re-laid-out: the next editor frame pans so
+	// the whole diagram sits at the centre of the viewport.
+	pending_focus_view:     bool,
+
+	// Press tracking for click-vs-drag: when the mouse goes down over a table
+	// node its id and press position are recorded; the retarget only fires if
+	// the release stays within the drag threshold. A drag (node moved) is
+	// never a click.
+	click_candidate_node:   i32,
+	click_candidate_mouse:  ig.Vec2,
 }
 
 DirectoryItemType :: enum {
 	Directory,
-	File
+	File,
 }
 
 DirectoryItem :: struct {
 	name: cstring,
 	path: cstring,
-	type: DirectoryItemType
+	type: DirectoryItemType,
 }
 
-SQLITE_MAGIC :: [16]u8{ 0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x20, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x74, 0x20, 0x33, 0x00 }
 
 GlobalColumnIndex :: distinct u32 // All tables will have at least one column therefore we don't need a sentinel value
 GlobalForeignKeyIndex :: distinct u32 // There may be tables with no FK, but we will deal with that with a simple bool
 GlobalTableIndex :: distinct u32
 
 Column :: struct {
-	name: string,
-	type: string,
+	name:                string,
+	type:                string,
 	composite_key_index: u32,
-	not_null: bool
+	not_null:            bool,
 }
 
 Table :: struct {
-	name: string,
-	from_column: GlobalColumnIndex,
-	to_column: GlobalColumnIndex,
+	name:             string,
+	from_column:      GlobalColumnIndex,
+	to_column:        GlobalColumnIndex,
 	from_foreign_key: GlobalForeignKeyIndex,
-	to_foreign_key: GlobalForeignKeyIndex,
-	has_foreign_keys: bool
+	to_foreign_key:   GlobalForeignKeyIndex,
+	has_foreign_keys: bool,
 }
 
 ForeignKey :: struct {
-	from: GlobalColumnIndex,
-	to: GlobalColumnIndex,
-	from_column : string, // Temporary value to test that we have things working before we start doing the whole index setup
-	to_table: string,
-	to_column: string,
-	resolved_to_index: bool
+	from:              GlobalColumnIndex,
+	to:                GlobalColumnIndex,
+	from_column:       string, // Temporary value to test that we have things working before we start doing the whole index setup
+	to_table:          string,
+	to_column:         string,
+	resolved_to_index: bool,
 }
 
 Schema :: struct {
 	database_name: string,
-
-	tables: [dynamic]Table,
-	columns: [dynamic]Column,
-	foreign_keys: [dynamic]ForeignKey,
-
-	arena: mem.Dynamic_Arena,
-	allocator: mem.Allocator
+	tables:        [dynamic]Table,
+	columns:       [dynamic]Column,
+	foreign_keys:  [dynamic]ForeignKey,
+	arena:         mem.Dynamic_Arena,
+	allocator:     mem.Allocator,
 }
 
-convert_odin_string_to_begin_and_end_cstrings :: proc(s: string) -> (begin: cstring, end: cstring) {
+convert_odin_string_to_begin_and_end_cstrings :: proc(
+	s: string,
+) -> (
+	begin: cstring,
+	end: cstring,
+) {
 	return cstring(raw_data(s)), cstring(&raw_data(s)[len(s)])
 }
 
 // -1 is the sentinel value, having a bool as well provides no real benefit at the moment, that is something that might change
 // if we want to use or_* at the call sites.
-find_table_by_column :: proc (tables: []Table, column: GlobalColumnIndex) -> int {
+find_table_by_column :: proc(tables: []Table, column: GlobalColumnIndex) -> int {
 	for table, i in tables {
 		if table.from_column <= column && column < table.to_column {
 			return i
@@ -140,9 +173,17 @@ find_table_by_column :: proc (tables: []Table, column: GlobalColumnIndex) -> int
 	return -1
 }
 
-collect_visible_tables :: proc(schema: ^Schema, state: DiagramState) -> (tables: [dynamic]GlobalTableIndex) {
-	if !state.show_from_seed_table || state.degrees == 0 {
-		for i in 0..<len(schema.tables) do append(&tables, GlobalTableIndex(u32(i)))
+collect_visible_tables :: proc(
+	schema: ^Schema,
+	state: DiagramState,
+) -> (
+	tables: [dynamic]GlobalTableIndex,
+) {
+	if !state.show_from_seed_table ||
+	   state.degrees == 0 ||
+	   state.seed_table >= GlobalTableIndex(len(schema.tables)) {
+		// Seed table gone (e.g. after loading a different DB) — show everything.
+		for i in 0 ..< len(schema.tables) do append(&tables, GlobalTableIndex(u32(i)))
 		return
 	}
 
@@ -166,25 +207,189 @@ collect_visible_tables :: proc(schema: ^Schema, state: DiagramState) -> (tables:
 			continue
 		}
 
-		linked := linked_tables(schema, current)
-		for t in linked {
-			if !(t in depth) {
-				depth[t] = current_depth + 1
-				append(&tables, t)
-				append(&queue, t)
+		{
+			linked := linked_tables(schema, current)
+			defer delete(linked)
+			for t in linked {
+				if !(t in depth) {
+					depth[t] = current_depth + 1
+					append(&tables, t)
+					append(&queue, t)
+				}
 			}
 		}
 	}
 	return
 }
 
-refresh_diagram_visible :: proc(schema: ^Schema, state: ^DiagramState) {
+refresh_diagram :: proc(schema: ^Schema, state: ^DiagramState) {
 	delete(state.visible_tables)
 	state.visible_tables = collect_visible_tables(schema, state^)
-	state.dirty = false
+	if layout_visible_tables(schema, state) {
+		// The visible set was re-laid-out, so centre the diagram in the editor
+		// viewport on the next frame.
+		state.pending_focus_view = true
+	}
 }
 
-linked_tables :: proc(schema: ^Schema, table_idx: GlobalTableIndex) -> (tables: [dynamic]GlobalTableIndex) {
+// Seed the degree filter at a table and refresh the visible set. Out-of-range
+// seeds (no tables loaded yet) are a no-op.
+set_diagram_seed :: proc(schema: ^Schema, state: ^DiagramState, seed: GlobalTableIndex) {
+	if seed >= GlobalTableIndex(len(schema.tables)) {
+		return
+	}
+	state.seed_table = seed
+	state.show_from_seed_table = true
+	refresh_diagram(schema, state)
+}
+
+show_all_tables :: proc(schema: ^Schema, state: ^DiagramState) {
+	state.show_from_seed_table = false
+	refresh_diagram(schema, state)
+}
+
+// Radius of the inner ring (grid px); outer rings scale up when a ring holds
+// many tables so their arc distance stays readable.
+RING_SPACING :: 340.0
+
+// Radial layout: the seed table sits at the origin and every other visible
+// table is placed on the ring matching its hop distance from the seed (one FK
+// link = one hop, either direction). Children are ordered around their parent
+// so links cross less. Runs on every view change — centring the seed is the
+// point of the layout — but is skipped when the seed and visible set are
+// unchanged, so re-clicking the active table (or Show All twice) costs
+// nothing and leaves drags alone.
+layout_visible_tables :: proc(schema: ^Schema, state: ^DiagramState) -> (relaid_out: bool) {
+	visible_count := len(state.visible_tables)
+	if visible_count == 0 {
+		return false
+	}
+	if state.seed_table >= GlobalTableIndex(len(schema.tables)) {
+		return false
+	}
+
+	key_sum := u64(visible_count)
+	for t in state.visible_tables {
+		key_sum += u64(t)
+	}
+	if state.layout_key.seed == state.seed_table && state.layout_key.visible_sum == key_sum {
+		return false
+	}
+	state.layout_key.seed = state.seed_table
+	state.layout_key.visible_sum = key_sum
+
+	visible := make(map[GlobalTableIndex]bool, context.temp_allocator)
+	for t in state.visible_tables {
+		visible[t] = true
+	}
+
+	// BFS from the seed through both link directions (the same neighbourhood
+	// rule as collect_visible_tables) to get the hop count and BFS parent of
+	// every visible table.
+	hop := make(map[GlobalTableIndex]u32, context.temp_allocator)
+	parent := make(map[GlobalTableIndex]GlobalTableIndex, context.temp_allocator)
+	children_of := make(map[GlobalTableIndex][dynamic]GlobalTableIndex, context.temp_allocator)
+	queue := make([dynamic]GlobalTableIndex, context.temp_allocator)
+	append(&queue, state.seed_table)
+	hop[state.seed_table] = 0
+	for head := 0; head < len(queue); head += 1 {
+		current := queue[head]
+		current_hop := hop[current]
+		linked := linked_tables(schema, current)
+		for neighbor in linked {
+			if !visible[neighbor] {
+				continue
+			}
+			if neighbor in hop {
+				continue
+			}
+			hop[neighbor] = current_hop + 1
+			parent[neighbor] = current
+			if children_of[current] == nil {
+				children_of[current] = make([dynamic]GlobalTableIndex, context.temp_allocator)
+			}
+			append(&children_of[current], neighbor)
+			append(&queue, neighbor)
+		}
+		delete(linked)
+	}
+
+	max_hop: u32 = 0
+	for t in state.visible_tables {
+		if h := hop[t]; h > max_hop {
+			max_hop = h
+		}
+	}
+	outer_ring := max_hop + 1 // tables the seed can't reach
+
+	// Bucket visible tables by ring (flat slice of dynamics — the map-value
+	// range workaround doesn't apply here and these range safely).
+	rings := make([dynamic][dynamic]GlobalTableIndex, context.temp_allocator)
+	for _ in 0 ..= int(outer_ring) {
+		append(&rings, make([dynamic]GlobalTableIndex, context.temp_allocator))
+	}
+	for t in state.visible_tables {
+		h := hop[t]
+		if _, reached := hop[t]; !reached {
+			h = outer_ring
+		}
+		append(&rings[h], t)
+	}
+
+	// Copy the map value before ranging over it: ranging directly over a
+	// map-stored [dynamic] whose key is missing (nil dynamic) crashes in this
+	// Odin build — reproduced standalone with the exact same data. The copy
+	// ranges safely.
+	angle := make(map[GlobalTableIndex]f32, context.temp_allocator)
+	prev_ring_ordered: [dynamic]GlobalTableIndex
+	for r in 0 ..= int(outer_ring) {
+		bucket := rings[u32(r)]
+		if len(bucket) == 0 {
+			continue
+		}
+
+		ordered: [dynamic]GlobalTableIndex
+		if r == 0 {
+			state.layout[state.seed_table] = ig.Vec2{0, 0}
+			angle[state.seed_table] = 0
+			continue
+		}
+
+		if r == 1 || u32(r) == outer_ring {
+			// No parent ordering: ring 1's only parent is the centred seed,
+			// and the outer ring holds unreachable tables with no BFS parent.
+			ordered = bucket
+		} else {
+			ordered = make([dynamic]GlobalTableIndex, context.temp_allocator)
+			for parent_t in prev_ring_ordered {
+				children := children_of[parent_t]
+				for child in children {
+					append(&ordered, child)
+				}
+			}
+		}
+
+		count := f32(len(ordered))
+		if count == 0 {
+			continue
+		}
+		radius := RING_SPACING * max(1.0, count / 6.0)
+		for t, i in ordered {
+			a := (f32(i) + 0.5) / count * 2.0 * math.PI
+			state.layout[t] = ig.Vec2{math.cos_f32(a) * radius, math.sin_f32(a) * radius}
+			angle[t] = a
+		}
+		prev_ring_ordered = ordered
+	}
+	return true
+}
+
+linked_tables :: proc(
+	schema: ^Schema,
+	table_idx: GlobalTableIndex,
+) -> (
+	tables: [dynamic]GlobalTableIndex,
+) {
 	table := schema.tables[table_idx]
 	if table.has_foreign_keys {
 		fks := schema.foreign_keys[table.from_foreign_key:table.to_foreign_key]
@@ -234,7 +439,11 @@ apply_theme_to_window :: proc(window: ^sdl.Window, theme_data: ThemeData) {
 	enable_os_blur(window, theme_data.backdrop)
 }
 
-window_hit_test :: proc "c" (win: ^sdl.Window, area: ^sdl.Point, data: rawptr) -> sdl.HitTestResult {
+window_hit_test :: proc "c" (
+	win: ^sdl.Window,
+	area: ^sdl.Point,
+	data: rawptr,
+) -> sdl.HitTestResult {
 	as := (^AppState)(data)
 	border := c.int(4)
 
@@ -255,14 +464,14 @@ window_hit_test :: proc "c" (win: ^sdl.Window, area: ^sdl.Point, data: rawptr) -
 	x := area[0]
 	y := area[1]
 
-	if x < border && y < border { return .RESIZE_TOPLEFT }
-	if x >= lw - border && y < border { return .RESIZE_TOPRIGHT }
-	if x < border && y >= lh - border { return .RESIZE_BOTTOMLEFT }
-	if x >= lw - border && y >= lh - border { return .RESIZE_BOTTOMRIGHT }
-	if y < border { return .RESIZE_TOP }
-	if y >= lh - border { return .RESIZE_BOTTOM }
-	if x < border { return .RESIZE_LEFT }
-	if x >= lw - border { return .RESIZE_RIGHT }
+	if x < border && y < border {return .RESIZE_TOPLEFT}
+	if x >= lw - border && y < border {return .RESIZE_TOPRIGHT}
+	if x < border && y >= lh - border {return .RESIZE_BOTTOMLEFT}
+	if x >= lw - border && y >= lh - border {return .RESIZE_BOTTOMRIGHT}
+	if y < border {return .RESIZE_TOP}
+	if y >= lh - border {return .RESIZE_BOTTOM}
+	if x < border {return .RESIZE_LEFT}
+	if x >= lw - border {return .RESIZE_RIGHT}
 
 	// Interactive titlebar content (menus, window controls) must NOT be draggable
 	// — leave those to ImGui so clicks land on the widgets.
@@ -287,19 +496,40 @@ dock_space_below_titlebar :: proc(app_state: ^AppState) {
 	ig.PushStyleVarImVec2(.WindowPadding, ig.Vec2{0, 0})
 	defer ig.PopStyleVar(3)
 
-	if ig.Begin("##MainDockHost", flags = {
-		.NoTitleBar, .NoCollapse, .NoResize, .NoMove, .NoDocking, .NoBringToFrontOnFocus, .NoNavFocus,
-	}) {
+	if ig.Begin(
+		"##MainDockHost",
+		flags = {
+			.NoTitleBar,
+			.NoCollapse,
+			.NoResize,
+			.NoMove,
+			.NoDocking,
+			.NoBringToFrontOnFocus,
+			.NoNavFocus,
+		},
+	) {
 		ig.DockSpace(ig.GetID("MainDockSpace"), ig.GetContentRegionAvail())
 	}
 	ig.End()
 }
 
-TitleBarButtonAction :: enum { Minimize, Maximize, Restore, Close }
+TitleBarButtonAction :: enum {
+	Minimize,
+	Maximize,
+	Restore,
+	Close,
+}
 
 // One titlebar window-control button. Renders the icon texture when loaded,
 // otherwise a plain text label (cross-platform fallback).
-titlebar_button :: proc(app_state: ^AppState, id: cstring, icon: ig.TextureRef, text_label: cstring, text_col: ig.Vec4, action: TitleBarButtonAction) {
+titlebar_button :: proc(
+	app_state: ^AppState,
+	id: cstring,
+	icon: ig.TextureRef,
+	text_label: cstring,
+	text_col: ig.Vec4,
+	action: TitleBarButtonAction,
+) {
 	clicked := false
 	if icon._TexID != 0 {
 		clicked = ig.ImageButton(id, icon, ig.Vec2{20, 20}, tint_col = text_col)
@@ -342,19 +572,21 @@ show_titlebar :: proc(app_state: ^AppState) {
 
 		// Menus
 		if ig.BeginMenu("File") {
-			if ig.MenuItem("Open...") { app_state.file_dialog.show = true }
+			if ig.MenuItem("Open...") {app_state.file_dialog.show = true}
 			ig.EndMenu()
 		}
 		ig.SameLine()
 		if ig.BeginMenu("Theme") {
-			if ig.MenuItem("Light") {
-				if theme_data, theme_ok := parse_ssTheme("assets/themes/paper_and_ink_light.ssTheme", context.temp_allocator); theme_ok {
-					apply_theme_to_window(app_state.window, theme_data)
-				}
-			}
-			if ig.MenuItem("Dark") {
-				if theme_data, theme_ok := parse_ssTheme("assets/themes/paper_and_ink_dark.ssTheme", context.temp_allocator); theme_ok {
-					apply_theme_to_window(app_state.window, theme_data)
+			// Menu built from a live scan of assets/themes/*.ssTheme — the
+			// display name is each file's `name` tag, so dropping a new theme
+			// file in the folder is all it takes to extend the menu.
+			themes := discover_themes(context.temp_allocator)
+			for theme in themes {
+				if ig.MenuItem(cstring(raw_data(theme.name))) {
+					if theme_data, theme_ok := parse_ssTheme(theme.path, context.temp_allocator);
+					   theme_ok {
+						apply_theme_to_window(app_state.window, theme_data)
+					}
 				}
 			}
 			ig.EndMenu()
@@ -374,7 +606,14 @@ show_titlebar :: proc(app_state: ^AppState) {
 		ig.SameLine(0, 0)
 		flags := sdl.GetWindowFlags(app_state.window)
 		if .MAXIMIZED in flags {
-			titlebar_button(app_state, "##win_restore", app_state.icon_restore, "[ ]", text_col, .Restore)
+			titlebar_button(
+				app_state,
+				"##win_restore",
+				app_state.icon_restore,
+				"[ ]",
+				text_col,
+				.Restore,
+			)
 		} else {
 			titlebar_button(app_state, "##win_max", app_state.icon_max, "[]", text_col, .Maximize)
 		}
@@ -389,17 +628,30 @@ show_titlebar :: proc(app_state: ^AppState) {
 	// Manual drag fallback for platforms without native hit-test support.
 	if app_state.drag_manual {
 		mouse := ig.GetMousePos()
-		in_titlebar := mouse.y < app_state.titlebar_height && mouse.x < io.DisplaySize.x - WINDOW_CONTROLS_WIDTH
+		in_titlebar :=
+			mouse.y < app_state.titlebar_height &&
+			mouse.x < io.DisplaySize.x - WINDOW_CONTROLS_WIDTH
 		if in_titlebar {
 			if ig.IsMouseClicked(.Left) {
 				app_state.drag_begin = true
 				app_state.drag_mouse_start = mouse
-				sdl.GetWindowPosition(app_state.window, &app_state.drag_win_x, &app_state.drag_win_y)
+				sdl.GetWindowPosition(
+					app_state.window,
+					&app_state.drag_win_x,
+					&app_state.drag_win_y,
+				)
 			}
 		}
 		if app_state.drag_begin && ig.IsMouseDragging(.Left, 0) {
-			delta := ig.Vec2{mouse.x - app_state.drag_mouse_start.x, mouse.y - app_state.drag_mouse_start.y}
-			sdl.SetWindowPosition(app_state.window, app_state.drag_win_x + i32(delta.x), app_state.drag_win_y + i32(delta.y))
+			delta := ig.Vec2 {
+				mouse.x - app_state.drag_mouse_start.x,
+				mouse.y - app_state.drag_mouse_start.y,
+			}
+			sdl.SetWindowPosition(
+				app_state.window,
+				app_state.drag_win_x + i32(delta.x),
+				app_state.drag_win_y + i32(delta.y),
+			)
 		}
 		if !ig.IsMouseDown(.Left) {
 			app_state.drag_begin = false
@@ -412,9 +664,16 @@ make_imgui_app :: proc() {
 	{
 		platform := sdl.GetPlatform()
 		rams := sdl.GetSystemRAM()
-		fmt.eprintfln("[hw] platform=%s cores=%d RAM=%dMB cacheline=%d sse4.1=%v avx2=%v avx512=%v",
-			platform, sdl.GetNumLogicalCPUCores(), rams, sdl.GetCPUCacheLineSize(),
-			sdl.HasSSE41(), sdl.HasAVX2(), sdl.HasAVX512F())
+		fmt.eprintfln(
+			"[hw] platform=%s cores=%d RAM=%dMB cacheline=%d sse4.1=%v avx2=%v avx512=%v",
+			platform,
+			sdl.GetNumLogicalCPUCores(),
+			rams,
+			sdl.GetCPUCacheLineSize(),
+			sdl.HasSSE41(),
+			sdl.HasAVX2(),
+			sdl.HasAVX512F(),
+		)
 	}
 
 	app_state: AppState
@@ -434,7 +693,12 @@ make_imgui_app :: proc() {
 	// .TRANSPARENT is required for the OS-level blur: the window framebuffer
 	// gets an alpha channel, and the desktop shows through the clear colour.
 	// .BORDERLESS removes the OS titlebar — we draw our own (show_titlebar).
-	window := sdl.CreateWindow("Schema Spelunker", 1600, 900, {.OPENGL, .RESIZABLE, .HIDDEN, .TRANSPARENT, .BORDERLESS})
+	window := sdl.CreateWindow(
+		"Schema Spelunker",
+		1600,
+		900,
+		{.OPENGL, .RESIZABLE, .HIDDEN, .TRANSPARENT, .BORDERLESS},
+	)
 	if window == nil {
 		fmt.eprintfln("SDL3 CreateWindow failed: %s", sdl.GetError())
 		return
@@ -463,8 +727,12 @@ make_imgui_app :: proc() {
 
 	// Which GPU is actually driving the GL context? On laptops this reveals
 	// whether SDL got the iGPU or the discrete GPU (Optimus/dGPU routing).
-	fmt.eprintfln("[gl] vendor=%s renderer=%s version=%s",
-		gl.GetString(gl.GL_VENDOR), gl.GetString(gl.GL_RENDERER), gl.GetString(gl.GL_VERSION))
+	fmt.eprintfln(
+		"[gl] vendor=%s renderer=%s version=%s",
+		gl.GetString(gl.GL_VENDOR),
+		gl.GetString(gl.GL_RENDERER),
+		gl.GetString(gl.GL_VERSION),
+	)
 
 	// Fire off the first swap to start any deferred driver work
 	// (swap chain buffer allocation, DWM registration), then DON'T wait
@@ -482,7 +750,10 @@ make_imgui_app :: proc() {
 	imn.CreateContext()
 	defer imn.DestroyContext(nil)
 	startup_backdrop := BackdropType.Mica
-	if theme_data, theme_ok := parse_ssTheme("assets/themes/paper_and_ink_light.ssTheme", context.temp_allocator); theme_ok {
+	if theme_data, theme_ok := parse_ssTheme(
+		"assets/themes/paper_and_ink_light.ssTheme",
+		context.temp_allocator,
+	); theme_ok {
 		apply_theme(theme_data)
 		startup_backdrop = theme_data.backdrop
 	}
@@ -500,6 +771,11 @@ make_imgui_app :: proc() {
 	font_filename: cstring = "assets/Roboto.ttf"
 	ascii_range := [?]ig.Wchar{32, 126, 0}
 	ig.FontAtlas_AddFontFromFileTTF(io.Fonts, font_filename, glyph_ranges = &ascii_range[0])
+	app_state.font_bold = ig.FontAtlas_AddFontFromFileTTF(
+		io.Fonts,
+		"assets/Roboto-Bold.ttf",
+		glyph_ranges = &ascii_range[0],
+	)
 
 	// Init backends
 	if !sdl_impl.InitForOpenGL(window, gl_context) {
@@ -539,10 +815,10 @@ make_imgui_app :: proc() {
 		refresh_rate = f64(mode.refresh_rate)
 	}
 
-	multiple : u32 = 1
-	max_multiple : u32 = 1
-	fps_target : f64 = refresh_rate
-	frame_time_target : f64 = 1.0 / refresh_rate
+	multiple: u32 = 1
+	max_multiple: u32 = 1
+	fps_target: f64 = refresh_rate
+	frame_time_target: f64 = 1.0 / refresh_rate
 
 	{
 		m := clamp(u32(FPS_CEILING / refresh_rate), 1, 4)
@@ -555,8 +831,8 @@ make_imgui_app :: proc() {
 
 	// Frame pacing throttle: 30-frame ring buffer
 	FPS_HISTORY :: 30
-	fps_ring : [FPS_HISTORY]f64
-	fps_idx  : u32
+	fps_ring: [FPS_HISTORY]f64
+	fps_idx: u32
 	fps_full := false
 
 	if err := init_file_dialog(&app_state.file_dialog); err != nil {
@@ -582,7 +858,7 @@ make_imgui_app :: proc() {
 
 		// 1. Drain all pending events
 		for sdl.PollEvent(&event) {
-			if event.type == .QUIT { running = false }
+			if event.type == .QUIT {running = false}
 			if event.type == .WINDOW_DISPLAY_CHANGED {
 				display_id = sdl.GetDisplayForWindow(window)
 				mode = sdl.GetCurrentDisplayMode(display_id)
@@ -616,27 +892,33 @@ make_imgui_app :: proc() {
 				show_file_dialog(&app_state) or_continue
 			}
 
-			show_node_editor(&app_state)
-
+			// Load the schema before drawing the diagram so a freshly opened
+			// database appears in the same frame.
 			if app_state.schema_dirty {
-				if schema, schema_err := extract_database_information(app_state.schema_name); schema_err == .OK {
+				if schema, schema_err := load_schema(app_state.schema_name); schema_err == .None {
 					mem.dynamic_arena_destroy(&app_state.schema.arena)
 					app_state.schema_dirty = false
 					app_state.schema = schema
 
-					for fk in schema.foreign_keys {
-						fmt.printfln("%s (%d) ==> %s.%s (%d)", fk.from_column, fk.from, fk.to_table, fk.to_column, fk.to)
+					// New database: wipe diagram state, default to One
+					// Degree from the first table, and build the initial
+					// visible set + layout.
+					delete(app_state.diagram_state.visible_tables)
+					delete(app_state.diagram_state.layout)
+					app_state.diagram_state = {}
+					app_state.diagram_state.layout = make(map[GlobalTableIndex]ig.Vec2)
+					if len(schema.tables) > 0 {
+						app_state.diagram_state.degrees = 1
+						app_state.diagram_state.show_from_seed_table = true
+						app_state.diagram_state.seed_table = 0
+						app_state.schema_window.selected_table = 0
+						app_state.diagram_state.pending_seed_selection = true
 					}
-
-					tables := collect_visible_tables(&schema, DiagramState{
-						seed_table = GlobalTableIndex(0),
-						show_from_seed_table = true,
-						degrees = 2,
-					})
-
-					fmt.eprintfln("Visible: %v", tables)
+					refresh_diagram(&app_state.schema, &app_state.diagram_state)
 				}
 			}
+
+			show_node_editor(&app_state)
 
 			if app_state.schema_window.show do show_schema_window(&app_state)
 		}
@@ -660,11 +942,11 @@ make_imgui_app :: proc() {
 			actual := 1.0 / max(elapsed, 1e-9)
 			fps_ring[fps_idx] = actual
 			fps_idx = (fps_idx + 1) % FPS_HISTORY
-			if fps_idx == 0 { fps_full = true }
+			if fps_idx == 0 {fps_full = true}
 
 			if fps_full {
 				avg := 0.0
-				for v in fps_ring { avg += v }
+				for v in fps_ring {avg += v}
 				avg /= FPS_HISTORY
 
 				if multiple > 1 && avg < fps_target * 0.8 {
@@ -687,21 +969,9 @@ make_imgui_app :: proc() {
 	}
 }
 
-is_sqlite_database :: proc(path: string) -> bool {
-    handle, err := os.open(path)
-    if err != os.ERROR_NONE do return false
-    defer os.close(handle)
-
-    buf: [16]u8
-    bytes_read, read_err := os.read(handle, buf[:])
-    if read_err != os.ERROR_NONE || bytes_read < 16 do return false
-
-    return buf == SQLITE_MAGIC
-}
-
 show_file_dialog :: proc(app_state: ^AppState) -> (os_err: os.Error) {
 	ig.SetNextWindowSize(ig.Vec2{300, 500}, .Appearing)
-	
+
 	// @Note: This looks pretty odd but for a window you need the end to be called regardless of the result of ig.Begin(...)
 	defer ig.End()
 	if ig.Begin("Open File...") {
@@ -709,7 +979,7 @@ show_file_dialog :: proc(app_state: ^AppState) -> (os_err: os.Error) {
 		if app_state.file_dialog.dirty {
 			mem.dynamic_arena_free_all(&app_state.file_dialog.arena)
 			alloc := mem.dynamic_arena_allocator(&app_state.file_dialog.arena)
-		
+
 			directory_handle, error := os.open(string(app_state.file_dialog.path_buffer[:]))
 			defer os.close(directory_handle)
 
@@ -720,21 +990,38 @@ show_file_dialog :: proc(app_state: ^AppState) -> (os_err: os.Error) {
 				files := os.read_dir(directory_handle, -1, context.temp_allocator) or_return
 				defer os.file_info_slice_delete(files, context.temp_allocator)
 
-				parent_path, path_alloc_error := os.clean_path(fmt.aprintf("%s%r..", cstring(&app_state.file_dialog.path_buffer[0]), os.Path_Separator, allocator=alloc), alloc)
+				parent_path, path_alloc_error := os.clean_path(
+					fmt.aprintf(
+						"%s%r..",
+						cstring(&app_state.file_dialog.path_buffer[0]),
+						os.Path_Separator,
+						allocator = alloc,
+					),
+					alloc,
+				)
 				if path_alloc_error == .None {
-					append(&app_state.file_dialog.items_in_folder, DirectoryItem{
-						name = "../",
-						path = strings.clone_to_cstring(parent_path, alloc),
-						type = .Directory
-					})
+					append(
+						&app_state.file_dialog.items_in_folder,
+						DirectoryItem {
+							name = "../",
+							path = strings.clone_to_cstring(parent_path, alloc),
+							type = .Directory,
+						},
+					)
 				}
 
 				for f in files {
 					item: DirectoryItem
 					item.name = strings.clone_to_cstring(f.name, alloc)
-					path := fmt.aprintf("%s%r%s", cstring(&app_state.file_dialog.path_buffer[0]), os.Path_Separator, item.name, allocator=alloc)
+					path := fmt.aprintf(
+						"%s%r%s",
+						cstring(&app_state.file_dialog.path_buffer[0]),
+						os.Path_Separator,
+						item.name,
+						allocator = alloc,
+					)
 					cleaned, err := os.clean_path(path, alloc)
-					
+
 					if err == .None {
 						item.path = strings.clone_to_cstring(cleaned, alloc)
 					} else {
@@ -747,7 +1034,7 @@ show_file_dialog :: proc(app_state: ^AppState) -> (os_err: os.Error) {
 						item.type = .File
 					}
 
-					if item.type == .Directory || is_sqlite_database(string(item.path)) {
+					if item.type == .Directory || known_database_format(string(item.path)) {
 						append(&app_state.file_dialog.items_in_folder, item)
 					}
 				}
@@ -755,12 +1042,12 @@ show_file_dialog :: proc(app_state: ^AppState) -> (os_err: os.Error) {
 			app_state.file_dialog.dirty = false
 		}
 
-	
+
 		style := ig.GetStyle()
 		ig.PushItemWidth(ig.GetContentRegionAvail().x)
 		if ig.InputText("##path", cstring(&app_state.file_dialog.path_buffer[0]), BUF_LEN) do app_state.file_dialog.dirty = true
 		ig.PopItemWidth()
-	
+
 		avail := ig.GetContentRegionAvail()
 		listbox_height := avail.y - ig.GetFrameHeightWithSpacing() - style.ItemSpacing.y
 		if ig.BeginListBox("##folder", ig.Vec2{avail.x, listbox_height}) {
@@ -770,9 +1057,12 @@ show_file_dialog :: proc(app_state: ^AppState) -> (os_err: os.Error) {
 				is_selected := i32(i) == app_state.file_dialog.selected_file
 				switch item.type {
 				case .File:
-					
 					ig.AlignTextToFramePadding()
-					ig.ImageWithBg(app_state.icon_page, ig.Vec2{32, 32}, tint_col = style.Colors[ig.Col.Text])
+					ig.ImageWithBg(
+						app_state.icon_page,
+						ig.Vec2{32, 32},
+						tint_col = style.Colors[ig.Col.Text],
+					)
 					ig.SameLine()
 					if ig.SelectableBoolPtr(item.name, &is_selected, {.AllowDoubleClick}) {
 						if ig.IsMouseDoubleClicked(.Left) {
@@ -788,7 +1078,11 @@ show_file_dialog :: proc(app_state: ^AppState) -> (os_err: os.Error) {
 
 				case .Directory:
 					ig.AlignTextToFramePadding()
-					ig.ImageWithBg(app_state.icon_folder, ig.Vec2{32, 32}, tint_col = style.Colors[ig.Col.Text])
+					ig.ImageWithBg(
+						app_state.icon_folder,
+						ig.Vec2{32, 32},
+						tint_col = style.Colors[ig.Col.Text],
+					)
 					ig.SameLine()
 					if ig.SelectableBoolPtr(item.name, &is_selected, {.AllowDoubleClick}) {
 						if ig.IsMouseDoubleClicked(.Left) {
@@ -806,7 +1100,7 @@ show_file_dialog :: proc(app_state: ^AppState) -> (os_err: os.Error) {
 			}
 			ig.EndListBox()
 		}
-	
+
 		if ig.Button("Cancel") do app_state.file_dialog.show = false
 		ig.SameLine()
 		ig.Button("Open")
@@ -815,38 +1109,229 @@ show_file_dialog :: proc(app_state: ^AppState) -> (os_err: os.Error) {
 	return
 }
 
+// Pushes a "this filter is active" look onto the next button; call
+// active_button_pop with the same flag after the button.
+active_button_color :: proc(active: bool) {
+	if active {
+		style := ig.GetStyle()
+		ig.PushStyleColorImVec4(.Button, style.Colors[ig.Col.ButtonHovered])
+		ig.PushStyleColorImVec4(.ButtonHovered, style.Colors[ig.Col.ButtonActive])
+	}
+}
+
+active_button_pop :: proc(active: bool) {
+	if active {
+		ig.PopStyleColor(2)
+	}
+}
+
+filter_button :: proc(
+	schema: ^Schema,
+	state: ^DiagramState,
+	seed: GlobalTableIndex,
+	label: cstring,
+	active: bool,
+	degrees: u8,
+) {
+	active_button_color(active)
+	defer active_button_pop(active)
+	if ig.Button(label) {
+		state.degrees = degrees
+		set_diagram_seed(schema, state, seed)
+	}
+}
+
+// One Degree / Two Degrees / Show All row, shared by the Diagram window (its
+// own seed) and the schema window (the selected table) so the filter follows
+// whichever table the user is looking at. Laying out the visible set is
+// automatic — every filter change runs it.
+show_diagram_controls :: proc(app_state: ^AppState, seed: GlobalTableIndex) {
+	schema := &app_state.schema
+	state := &app_state.diagram_state
+
+	active := state.show_from_seed_table && state.seed_table == seed
+	filter_button(schema, state, seed, "One Degree", active && state.degrees == 1, 1)
+	ig.SameLine()
+	filter_button(schema, state, seed, "Two Degrees", active && state.degrees == 2, 2)
+	ig.SameLine()
+	active_button_color(!state.show_from_seed_table)
+	defer active_button_pop(!state.show_from_seed_table)
+	if ig.Button("Show All") {
+		show_all_tables(schema, state)
+	}
+}
+
 show_node_editor :: proc(app_state: ^AppState) {
 	ig.SetNextWindowSize(ig.Vec2{600, 400}, .Appearing)
 	defer ig.End()
 	if ig.Begin("Diagram") {
-		if ig.Button("One Degree") {
-			app_state.diagram_state.degrees = 1
-			app_state.diagram_state.show_from_seed_table = true
-		}
-		ig.SameLine()
-		if ig.Button("Two Degrees") {
-			app_state.diagram_state.degrees = 2
-			app_state.diagram_state.show_from_seed_table = true
-		}
-		ig.SameLine()
-		if ig.Button("Show All") {
-			app_state.diagram_state.show_from_seed_table = false
-		}
+		diagram := &app_state.diagram_state
+
+		show_diagram_controls(app_state, diagram.seed_table)
+
 		imn.BeginNodeEditor()
 
-		for table, i in app_state.schema.tables {
-			imn.BeginNode(i32(i))
+		// Centre the visible diagram in the editor viewport after a re-layout.
+		// ImNodes draws a node at editor-space `origin + panning`, so the diagram
+		// centre lands on the canvas centre when
+		// panning = canvas_size / 2 - centre — the same convention as the
+		// minimap's click-to-centre in imnodes.cpp. Inside BeginNodeEditor the
+		// current ImGui window IS the canvas child region, so GetWindowSize
+		// returns the canvas size (ImNodes uses the same call internally).
+		if diagram.pending_focus_view {
+			diagram.pending_focus_view = false
+			if len(diagram.visible_tables) > 0 {
+				min_pos := diagram.layout[diagram.visible_tables[0]]
+				max_pos := min_pos
+				for table_idx in diagram.visible_tables {
+					pos := diagram.layout[table_idx]
+					if pos.x < min_pos.x {min_pos.x = pos.x}
+					if pos.x > max_pos.x {max_pos.x = pos.x}
+					if pos.y < min_pos.y {min_pos.y = pos.y}
+					if pos.y > max_pos.y {max_pos.y = pos.y}
+				}
+				centre_x := (min_pos.x + max_pos.x) * 0.5
+				centre_y := (min_pos.y + max_pos.y) * 0.5
+				canvas_size := ig.GetWindowSize()
+				imn.EditorContextResetPanning(
+					canvas_size.x * 0.5 - centre_x,
+					canvas_size.y * 0.5 - centre_y,
+				)
+			}
+		}
+
+		schema := &app_state.schema
+
+		visible := make(map[GlobalTableIndex]bool, context.temp_allocator)
+		for table_idx in diagram.visible_tables {
+			visible[table_idx] = true
+		}
+
+		// FK endpoint columns become pins so links anchor to the right row.
+		// The shapes double as cardinality symbols: the referencing column
+		// (input pin, left) is the "many" side — one referenced row can be
+		// pointed at by many rows — a filled triangle; the referenced column
+		// (output pin, right) is the "one" side — a filled circle. Distinct
+		// shapes keep every link's two ends readable even when several links
+		// share the same column.
+		pin_is_input := make(map[GlobalColumnIndex]bool, context.temp_allocator)
+		for fk in schema.foreign_keys {
+			if !(fk.from in pin_is_input) {
+				pin_is_input[fk.from] = true
+			}
+			if !(fk.to in pin_is_input) {
+				pin_is_input[fk.to] = false
+			}
+		}
+
+		for table_idx in diagram.visible_tables {
+			pos := diagram.layout[table_idx]
+			imn.SetNodeGridSpacePos(i32(table_idx), pos.x, pos.y)
+
+			table := schema.tables[table_idx]
+			imn.BeginNode(i32(table_idx))
 			imn.BeginNodeTitleBar()
+			is_seed := table_idx == diagram.seed_table
+			if is_seed {
+				// The seed table gets the accent-coloured title bar. The Link
+				// colour IS the theme accent, so no extra state is needed.
+				imn.PushColorStyle(.TitleBar, imn.GetStyle().colors[imn.Col.Link])
+			}
+			ig.PushFontFloat(app_state.font_bold, 0.0) // 0.0 = keep current size
 			ig.TextUnformatted(convert_odin_string_to_begin_and_end_cstrings(table.name))
+			ig.PopFont()
+			if is_seed {
+				imn.PopColorStyle()
+			}
 			imn.EndNodeTitleBar()
 
-			for column in app_state.schema.columns[table.from_column:table.to_column] {
+			for column, i in schema.columns[table.from_column:table.to_column] {
+				column_idx := GlobalColumnIndex(u32(table.from_column) + u32(i))
+				is_input, is_pin := pin_is_input[column_idx]
+				if is_pin {
+					if is_input {
+						imn.BeginInputAttribute(i32(column_idx), .TriangleFilled)
+					} else {
+						imn.BeginOutputAttribute(i32(column_idx), .CircleFilled)
+					}
+				}
 				ig.TextUnformatted(convert_odin_string_to_begin_and_end_cstrings(column.name))
+				if is_pin {
+					if is_input {
+						imn.EndInputAttribute()
+					} else {
+						imn.EndOutputAttribute()
+					}
+				}
 			}
 			imn.EndNode()
 		}
 
+		// FK links between visible tables. Link ids are the FK's index into
+		// the schema; pin ids are the raw GlobalColumnIndex values.
+		for table_idx in diagram.visible_tables {
+			table := schema.tables[table_idx]
+			if !table.has_foreign_keys {
+				continue
+			}
+			for fk, i in schema.foreign_keys[table.from_foreign_key:table.to_foreign_key] {
+				to_table := find_table_by_column(schema.tables[:], fk.to)
+				if to_table >= 0 && visible[GlobalTableIndex(u32(to_table))] {
+					imn.Link(i32(u32(table.from_foreign_key) + u32(i)), i32(fk.from), i32(fk.to))
+				}
+			}
+		}
+
 		imn.EndNodeEditor()
+
+		// Mirror dragged positions back so the cache stays authoritative and a
+		// later view change lays out from where the user left things. Runs before
+		// the retarget check below: a retarget can reveal tables that were never
+		// rendered, and GetNodeGridSpacePos asserts on those.
+		for table_idx in diagram.visible_tables {
+			pos_x, pos_y: f32
+			imn.GetNodeGridSpacePos(i32(table_idx), &pos_x, &pos_y)
+			diagram.layout[table_idx] = ig.Vec2{pos_x, pos_y}
+		}
+
+		// A click on a table retargets the seed to it; a drag is not a click.
+		// Track press → release: when the release lands inside the drag
+		// threshold of the press (which was on a node) it's a click; moving
+		// the node past the threshold makes it a drag and leaves the view
+		// alone. IsMouseDragging can't be used here — it reports false on the
+		// release frame itself.
+		hovered: i32
+		is_over_node := imn.IsNodeHovered(&hovered) != 0
+		if ig.IsMouseClicked(.Left) {
+			if is_over_node {
+				diagram.click_candidate_node = hovered
+				diagram.click_candidate_mouse = ig.GetMousePos()
+			} else {
+				diagram.click_candidate_node = -1
+			}
+		}
+		if ig.IsMouseReleased(.Left) && diagram.click_candidate_node >= 0 {
+			drag_threshold := ig.GetIO().MouseDragThreshold
+			release_mouse := ig.GetMousePos()
+			dx := release_mouse.x - diagram.click_candidate_mouse.x
+			dy := release_mouse.y - diagram.click_candidate_mouse.y
+			if dx * dx + dy * dy <= drag_threshold * drag_threshold {
+				seed := GlobalTableIndex(u32(diagram.click_candidate_node))
+				set_diagram_seed(schema, diagram, seed)
+				imn.ClearNodeSelection()
+				imn.SelectNode(i32(seed))
+				app_state.schema_window.selected_table = i32(seed)
+			}
+			diagram.click_candidate_node = -1
+		}
+
+		// Deferred seed selection (schema load / list retarget): the node was
+		// rendered above, so the pool is guaranteed to hold it now.
+		if diagram.pending_seed_selection {
+			diagram.pending_seed_selection = false
+			imn.ClearNodeSelection()
+			imn.SelectNode(i32(diagram.seed_table))
+		}
 	}
 }
 
@@ -855,14 +1340,30 @@ show_schema_window :: proc(app_state: ^AppState) {
 	ig.SetNextWindowSize(ig.Vec2{800, 600}, .Appearing)
 	defer ig.End()
 	if ig.Begin(strings.clone_to_cstring(schema.database_name, context.temp_allocator)) {
+		diagram := &app_state.diagram_state
+
+		// The degree buttons act on the table selected in this list, and
+		// clicking a table retargets the diagram to it — the list and the
+		// diagram never need separately-picked seeds.
+		seed := diagram.seed_table
+		if app_state.schema_window.selected_table >= 0 {
+			seed = GlobalTableIndex(u32(app_state.schema_window.selected_table))
+		}
+		show_diagram_controls(app_state, seed)
+
 		avail := ig.GetContentRegionAvail()
 
 		is_selected := false
 		if ig.BeginListBox("##folder", avail) {
 			for table, i in schema.tables {
 				is_selected = i32(i) == app_state.schema_window.selected_table
-				if ig.SelectableBoolPtr(strings.clone_to_cstring(table.name, context.temp_allocator), &is_selected) {
+				if ig.SelectableBoolPtr(
+					strings.clone_to_cstring(table.name, context.temp_allocator),
+					&is_selected,
+				) {
 					app_state.schema_window.selected_table = i32(i)
+					set_diagram_seed(&app_state.schema, diagram, GlobalTableIndex(u32(i)))
+					diagram.pending_seed_selection = true
 				}
 			}
 			ig.EndListBox()
@@ -870,13 +1371,8 @@ show_schema_window :: proc(app_state: ^AppState) {
 	}
 }
 
-init_schema :: proc(schema: ^Schema) {
-	mem.dynamic_arena_init(&schema.arena)
-	schema.allocator = mem.dynamic_arena_allocator(&schema.arena)
-}
-
-print_database_information :: proc(filename: string) -> sqlite.SQLiteError {
-	schema := extract_database_information(filename) or_return
+print_database_information :: proc(filename: string) -> SchemaError {
+	schema := load_schema(filename) or_return
 	defer mem.dynamic_arena_destroy(&schema.arena)
 
 	for table in schema.tables {
@@ -885,98 +1381,14 @@ print_database_information :: proc(filename: string) -> sqlite.SQLiteError {
 		for column in schema.columns[table.from_column:table.to_column] {
 			not_null: string
 			pk: string
-			if column.not_null || column.composite_key_index > 0 do not_null = "NOT_NULL"
-			if column.composite_key_index > 0 do pk = fmt.tprintf("PRIMARY KEY INDEX: %v", column.composite_key_index)
+			if column.not_null || column.composite_key_index > 0 {
+				not_null = "NOT_NULL"
+			}
+			if column.composite_key_index > 0 {
+				pk = fmt.tprintf("PRIMARY KEY INDEX: %v", column.composite_key_index)
+			}
 			fmt.printfln("- %v OF %v %s %s", column.name, column.type, not_null, pk)
 		}
 	}
-	return .OK
-}
-
-extract_database_information :: proc(filename: string) -> (schema: Schema, error: sqlite.SQLiteError) {
-	cfilename := strings.clone_to_cstring(filename, context.temp_allocator)
-	db := sqlite.open(cfilename) or_return
-	defer sqlite.close(db)
-	
-	table_stmt := sqlite.prepare(db, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';") or_return
-	defer sqlite.finalize(table_stmt)
-
-	// We have a database, no point initialising the struct before here as we might not have anything in there, so no need to alloc
-
-	init_schema(&schema)
-	defer if error != .OK { mem.dynamic_arena_destroy(&schema.arena) }
-
-	old_allocator := context.allocator
-	context.allocator = schema.allocator
-	defer context.allocator = old_allocator
-
-	schema.database_name = strings.clone(filename)
-
-	current_column: GlobalColumnIndex = 0
-	current_fk: GlobalForeignKeyIndex = 0
-
-	col_indices := make(map[[2]string]GlobalColumnIndex, context.temp_allocator)
-
-	for sqlite.step(table_stmt) == .ROW {
-		table: Table
-
-		table.name = sqlite.column_string(table_stmt, 0)
-		table.from_column = current_column
-
-		column_stmt := sqlite.prepare(db, "SELECT * FROM pragma_table_info(?)") or_return
-		defer sqlite.finalize(column_stmt)
-
-		sqlite.bind_text(column_stmt, 1, strings.clone_to_cstring(table.name, context.temp_allocator)) or_return
-
-		for sqlite.step(column_stmt) == .ROW {
-			column: Column
-			column.name = sqlite.column_string(column_stmt, 1)
-			column.type = sqlite.column_string(column_stmt, 2)
-			column.not_null = sqlite.column_bool(column_stmt, 3)
-			column.composite_key_index = sqlite.column_u32(column_stmt, 5)
-
-			append(&schema.columns, column)
-			col_indices[[2]string{table.name, column.name}] = current_column
-			current_column += 1
-		}
-
-		table.to_column = current_column
-
-		fk_stmt := sqlite.prepare(db, "SELECT * FROM pragma_foreign_key_list(?)") or_return
-		defer sqlite.finalize(fk_stmt)
-
-		sqlite.bind_text(fk_stmt, 1, strings.clone_to_cstring(table.name, context.temp_allocator)) or_return
-
-		for sqlite.step(fk_stmt) == .ROW {
-			if !table.has_foreign_keys {
-				table.has_foreign_keys = true
-				table.from_foreign_key = current_fk
-			}
-
-			fk: ForeignKey
-			ok: bool
-			fk.from_column = sqlite.column_string(fk_stmt, 3)
-			fk.to_table = sqlite.column_string(fk_stmt, 2)
-			fk.to_column = sqlite.column_string(fk_stmt, 4)
-			fk.from, ok = col_indices[[2]string{table.name, fk.from_column}]
-
-			if !ok {
-				fmt.eprintfln("No column index found for %s.%s", table.name, fk.from_column)
-			}
-
-			append(&schema.foreign_keys, fk)
-			current_fk += 1
-		}
-
-		if table.has_foreign_keys do table.to_foreign_key = current_fk
-
-		append(&schema.tables, table)
-	}
-
-	for &fk in schema.foreign_keys {
-		fk.to = col_indices[[2]string{fk.to_table, fk.to_column}] or_continue
-		fk.resolved_to_index = true
-	}
-
-	return schema, .OK
+	return .None
 }

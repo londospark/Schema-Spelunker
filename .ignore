@@ -1,0 +1,6 @@
+# 1. Block massive implementations (Keep headers for bindings!)
+vendor/sqlite3/sqlite3.c
+
+# 2. Block binary assets
+assets/**/*.ttf
+assets/icons/*.png

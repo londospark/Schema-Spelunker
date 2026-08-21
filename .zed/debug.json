@@ -1,0 +1,24 @@
+[
+  {
+    "label": "Schema Spelunker (Windows)",
+    "adapter": "CodeLLDB",
+    "request": "launch",
+    "program": "bin/schema_spelunker.exe",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "build": "Debug (Windows)",
+    "sourceMap": {
+      "X:\\Code\\schema_spelunker": "$ZED_WORKTREE_ROOT",
+    },
+  },
+  {
+    "label": "Schema Spelunker (Linux)",
+    "adapter": "CodeLLDB",
+    "request": "launch",
+    "program": "bin/schema_spelunker",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "build": "Debug (Linux)",
+    "sourceMap": {
+      "/home/londo/Code/schema_spelunker": "$ZED_WORKTREE_ROOT",
+    },
+  },
+]
