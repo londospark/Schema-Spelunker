@@ -573,9 +573,16 @@ apply_theme :: proc(data: ThemeData) {
 	v = vec4_with_alpha(data.link_color, 0.72)
 	imn_style.colors[imn.Col.LinkSelected] = imn_col(v.x, v.y, v.z, v.w)
 	imn_style.link_thickness = data.link_thickness
-	imn_style.colors[imn.Col.Pin] = imn_col(accent.x, accent.y, accent.z, accent.w)
-	v = vec4_with_alpha(accent, 0.85)
-	imn_style.colors[imn.Col.PinHovered] = imn_col(v.x, v.y, v.z, v.w)
+	// Fully transparent, not just shrunk: the per-pin triangle/circle
+	// markers are entirely superseded by the crow's-foot cardinality
+	// glyphs draw_fk_link draws on the link itself, and a shrunk-but-still-
+	// opaque marker is still a visible dot up close or against a
+	// high-contrast theme. Alpha 0 makes it genuinely invisible regardless
+	// of the PinCircleRadius/PinTriangleSideLength style vars pushed around
+	// the node loop in main.odin, while leaving the pin's hit-test geometry
+	// (and ImNodes' own hover/connection bookkeeping) untouched.
+	imn_style.colors[imn.Col.Pin] = imn_col(accent.x, accent.y, accent.z, 0.0)
+	imn_style.colors[imn.Col.PinHovered] = imn_col(accent.x, accent.y, accent.z, 0.0)
 	v = vec4_with_alpha(accent, 0.30)
 	imn_style.colors[imn.Col.BoxSelector] = imn_col(v.x, v.y, v.z, v.w)
 	v = vec4_with_alpha(accent, 0.80)

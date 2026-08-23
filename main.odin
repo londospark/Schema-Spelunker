@@ -637,7 +637,14 @@ compute_layer_order :: proc(
 			}
 			from_t := GlobalTableIndex(u32(from_i))
 			to_t := GlobalTableIndex(u32(to_i))
-			if from_t == state.seed_table || !visible[from_t] || !visible[to_t] {
+			// A self-referencing FK (e.g. cards.parent_id -> cards.id) has
+			// from_t == to_t, so from_hop and to_hop are the same map read —
+			// "at least one rank below itself" is never satisfiable, so
+			// without this guard the condition below stays true forever,
+			// walking the table's own rank up by exactly one every single
+			// pass until the iteration cap, stranding it (and everything
+			// beyond it) tens of ranks away from the rest of the layout.
+			if from_t == state.seed_table || from_t == to_t || !visible[from_t] || !visible[to_t] {
 				continue
 			}
 			from_hop, from_ok := hop[from_t]
@@ -1669,7 +1676,6 @@ show_node_editor :: proc(app_state: ^AppState) {
 		pin_offset := imn.GetStyle().pin_offset
 		node_rects := make(map[GlobalTableIndex]Rect2, context.temp_allocator)
 		pin_row_y := make(map[GlobalColumnIndex]f32, context.temp_allocator)
-		pin_pos := make(map[GlobalColumnIndex]ig.Vec2, context.temp_allocator)
 
 		// The per-attribute pin marker is now redundant with the crow's-foot
 		// cardinality glyphs draw_fk_link draws on the link itself (same
@@ -1724,18 +1730,7 @@ show_node_editor :: proc(app_state: ^AppState) {
 			}
 			imn.EndNode()
 
-			node_min := ig.GetItemRectMin()
-			node_max := ig.GetItemRectMax()
-			node_rects[table_idx] = Rect2{node_min, node_max}
-			for _, i in schema.columns[table.from_column:table.to_column] {
-				column_idx := GlobalColumnIndex(u32(table.from_column) + u32(i))
-				is_input, is_pin := pin_is_input[column_idx]
-				if !is_pin {
-					continue
-				}
-				x := is_input ? node_min.x - pin_offset : node_max.x + pin_offset
-				pin_pos[column_idx] = ig.Vec2{x, pin_row_y[column_idx]}
-			}
+			node_rects[table_idx] = Rect2{ig.GetItemRectMin(), ig.GetItemRectMax()}
 		}
 		imn.PopStyleVar(2)
 
@@ -1763,13 +1758,55 @@ show_node_editor :: proc(app_state: ^AppState) {
 				}
 				to_table := GlobalTableIndex(u32(to_i))
 				many_optional := !schema.columns[fk.from].not_null
+
+				// Each FK picks its own exit edge from this *specific*
+				// relationship's two tables, not a side shared by every FK
+				// that happens to touch the same column (pin_is_input,
+				// above, picks one side per column — first FK to touch it
+				// wins — which is right for choosing an attribute type/pin
+				// marker, but wrong for routing: a hub column like
+				// companies.id is referenced by tables scattered on both
+				// sides of it, and forcing all of them through one shared
+				// side sends the "wrong side" ones on a long loop around
+				// the node instead of a direct line). A self-reference
+				// (to_table == table_idx) has no other table to compare
+				// against, so it keeps the fixed one=right/many=left
+				// convention self_loop_waypoints assumes.
+				one_pos, many_pos: ig.Vec2
+				one_outward, many_outward: ig.Vec2
+				if to_table == table_idx {
+					self_rect := node_rects[to_table]
+					one_pos = ig.Vec2{self_rect.max.x + pin_offset, pin_row_y[fk.to]}
+					one_outward = ig.Vec2{1, 0}
+					many_pos = ig.Vec2{self_rect.min.x - pin_offset, pin_row_y[fk.from]}
+					many_outward = ig.Vec2{-1, 0}
+				} else {
+					to_rect := node_rects[to_table]
+					many_rect := node_rects[table_idx]
+					to_center_x := (to_rect.min.x + to_rect.max.x) * 0.5
+					many_center_x := (many_rect.min.x + many_rect.max.x) * 0.5
+					if to_center_x <= many_center_x {
+						one_pos = ig.Vec2{to_rect.max.x + pin_offset, pin_row_y[fk.to]}
+						one_outward = ig.Vec2{1, 0}
+						many_pos = ig.Vec2{many_rect.min.x - pin_offset, pin_row_y[fk.from]}
+						many_outward = ig.Vec2{-1, 0}
+					} else {
+						one_pos = ig.Vec2{to_rect.min.x - pin_offset, pin_row_y[fk.to]}
+						one_outward = ig.Vec2{-1, 0}
+						many_pos = ig.Vec2{many_rect.max.x + pin_offset, pin_row_y[fk.from]}
+						many_outward = ig.Vec2{1, 0}
+					}
+				}
+
 				draw_fk_link(
 					draw_list,
 					node_rects,
 					to_table,
 					table_idx,
-					pin_pos[fk.to],
-					pin_pos[fk.from],
+					one_pos,
+					many_pos,
+					one_outward,
+					many_outward,
 					many_optional,
 					link_color,
 					link_hover_color,

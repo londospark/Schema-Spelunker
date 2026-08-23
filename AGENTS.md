@@ -111,7 +111,7 @@ SQLite schema browser. SDL3 + Dear ImGui + OpenGL 3.3.
 
 - CLI path: `print_database_information` dumps schema to stdout via `load_schema` (legacy, still works).
 - GUI: SDL3 + ImGui dockspace, owner-drawn titlebar with window controls and OS glass blur (Windows), menu bar with File > Open and a Theme menu built from a live scan of `assets/themes/*.ssTheme` — each file's `name` tag is the menu label, so a dropped-in theme file extends the menu with no code change.
-- Theme: Paper & Ink light/dark + OLED Dark loaded from `assets/themes/*.ssTheme` via `parse_ssTheme` / `apply_theme`.
+- Theme: Hot Dog Stand (Windows 3.1 meme scheme — gaudy on purpose), Paper & Ink light/dark, OLED Dark, Blueprint, Monokai, Nord — all loaded from `assets/themes/*.ssTheme` via `parse_ssTheme` / `apply_theme`. Diagram link colour/thickness are theme-driven too (`[diagram_links]` section — `colour`/`thickness` keys, `ThemeData.link_color`/`link_thickness`).
 - File dialog: custom ImGui window with directory navigation, folder/file icons, magic-byte filter (backend-driven via `known_database_format`), arena allocator per-frame listing.
 - Font: Roboto loaded from `assets/Roboto.ttf` via `FontAtlas_AddFontFromFileTTF`; the bold weight (`assets/Roboto-Bold.ttf`) pushes the diagram node title text.
 - Schema data model: typed structs + arena (`Schema`, `Table`, `Column`, `ForeignKey`) with FK resolution to `GlobalColumnIndex`. Loaded through the `Backend` abstraction in `schema_load.odin`; SQLite is the only backend so far.
@@ -142,14 +142,35 @@ SQLite schema browser. SDL3 + Dear ImGui + OpenGL 3.3.
   node/pin item rects — no vendor edits, see "Vendoring rules" above), so a
   routed link tracks a drag or pan for free. Each link samples the plain
   direct bezier, detours around any other visible table it actually crosses
-  with a couple of waypoints, then smooths the whole path with a
-  Catmull-Rom spline — an unobstructed link still looks like the original
-  bezier. Cardinality is drawn as crow's-foot notation on the link itself
-  (crow's foot + hollow circle if the referencing column is nullable on the
-  "many" end, a single tick on the "one" end); the per-pin
-  triangle/circle ImNodes shapes are shrunk to a near-invisible anchor dot
-  so they don't double up with these. `test/repro_link_routing.odin` checks
-  the routing math standalone.
+  with a couple of waypoints (nudged by a small per-link deterministic
+  stagger so two links detouring around the same obstacle don't land on
+  identical waypoints and overlap through the whole detour), then rebuilds
+  the full path as chained cubic bezier segments — a two-point link keeps
+  ImNodes' own fixed-horizontal-tangent construction (capped at
+  `MAX_TANGENT_OFFSET` so several links sharing one pin diverge from it
+  sooner instead of bundling into a fake extra crow's foot), while a
+  multi-waypoint link blends each interior waypoint's tangent Catmull-Rom
+  style so a detour reads as one smooth curve rather than a chain of
+  near-straight facets; the two true endpoints always keep the fixed
+  horizontal tangent regardless. A self-referencing FK (e.g.
+  `cards.parent_id -> cards.id`) skips obstacle routing and always loops
+  from each pin straight down below the node's own bottom edge and back up
+  into the other pin. Cardinality is drawn as crow's-foot notation on the
+  link itself (crow's foot + hollow circle if the referencing column is
+  nullable on the "many" end, a single tick on the "one" end), oriented by
+  the pin's fixed side (always exactly horizontal, never derived from the
+  routed path's local shape — that can flip the glyph to the wrong side
+  when a waypoint bends the curve close to a pin). Hovering a link
+  brightens and thickens it. The per-pin triangle/circle ImNodes shapes are
+  fully transparent (`ImNodesCol.Pin`/`PinHovered` alpha 0), not just
+  shrunk, so they never double up with these glyphs.
+  `test/repro_link_routing.odin` checks the routing math standalone.
+  `compute_layer_order`'s rank relaxation explicitly skips self-referencing
+  FKs (`from_t == to_t`) — without that guard the relaxation condition
+  reads the same map entry on both sides and is trivially true forever,
+  walking the table's own rank up by one every pass with no way to
+  converge until the iteration cap strands it (and everything past it)
+  tens of ranks away from the rest of the layout.
 - Debugging: Zed debugger (DAP) via `.zed/debug.json` — CodeLLDB adapter
   launches the debug build (the per-OS Debug task runs `build.bat debug` /
   `build.sh debug` first); press F4 (`debugger: start`) for the new-process

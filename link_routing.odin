@@ -55,16 +55,29 @@ rect2_overlaps_segment :: proc(r: Rect2, p1, p2: ig.Vec2) -> bool {
 }
 
 // Same construction as ImNodes' own link curve (GetCubicBezier in
-// imnodes.cpp): control points offset purely along x by a quarter of the
-// pin-to-pin distance. Kept identical so a link with a clear path looks
-// exactly as it always has.
-sample_direct_curve :: proc(p0, p3: ig.Vec2, out: []ig.Vec2) {
+// imnodes.cpp): control points offset from each endpoint along that
+// endpoint's own outward direction (dir0/dir3 — away from the node it sits
+// on, not always +x/-x: see the pin_is_input comment at the draw_fk_link
+// call site in main.odin, which reassigns which edge a pin renders on
+// based on the tables' current relative position, not the FK's one/many
+// role), by a quarter of the pin-to-pin distance capped at
+// MAX_TANGENT_OFFSET. The cap is the one deviation from ImNodes' own
+// formula: several links can share a single pin (e.g. every table with a
+// company_id all referencing the same companies.id), and an uncapped
+// quarter-of-total-length offset makes a long-distance link launch on a
+// long near-straight run in lockstep with every other link sharing that
+// pin before they visibly diverge — which reads as one big
+// crow's-foot-like fan swallowing the real cardinality glyph. Capping the
+// offset makes long links diverge from a shared pin much sooner, while
+// leaving anything shorter than the cap (the common case) completely
+// unaffected.
+sample_direct_curve :: proc(p0, p3, dir0, dir3: ig.Vec2, out: []ig.Vec2) {
 	dx := p3.x - p0.x
 	dy := p3.y - p0.y
 	length := math.sqrt(dx * dx + dy * dy)
-	offset := 0.25 * length
-	p1 := ig.Vec2{p0.x + offset, p0.y}
-	p2 := ig.Vec2{p3.x - offset, p3.y}
+	offset := min(0.25 * length, MAX_TANGENT_OFFSET)
+	p1 := vec2_add(p0, vec2_scale(dir0, offset))
+	p2 := vec2_add(p3, vec2_scale(dir3, offset))
 	n := len(out)
 	for i in 0 ..< n {
 		t := f32(i) / f32(n - 1)
@@ -79,6 +92,8 @@ sample_direct_curve :: proc(p0, p3: ig.Vec2, out: []ig.Vec2) {
 		}
 	}
 }
+
+MAX_TANGENT_OFFSET :: 80.0
 
 ROUTING_SAMPLE_COUNT :: 20
 RoutingSamples :: [ROUTING_SAMPLE_COUNT]ig.Vec2
@@ -105,12 +120,12 @@ compare_obstacles :: proc(a, b: Obstacle) -> int {
 // Finds every table rect (other than the link's own two endpoint tables)
 // that the direct p0->p3 curve actually crosses, ordered left to right.
 find_obstacles :: proc(
-	p0, p3: ig.Vec2,
+	p0, p3, dir0, dir3: ig.Vec2,
 	node_rects: map[GlobalTableIndex]Rect2,
 	exclude_a, exclude_b: GlobalTableIndex,
 ) -> [dynamic]Obstacle {
 	samples: RoutingSamples
-	sample_direct_curve(p0, p3, samples[:])
+	sample_direct_curve(p0, p3, dir0, dir3, samples[:])
 
 	obstacles := make([dynamic]Obstacle, 0, 4, context.temp_allocator)
 	for table_idx, rect in node_rects {
@@ -162,20 +177,32 @@ link_stagger :: proc(p0, p3: ig.Vec2) -> f32 {
 // heavily-shared hub's neighbourhood) would otherwise produce a waypoint
 // list long enough to zigzag rather than clarify.
 route_link_waypoints :: proc(
-	p0, p3: ig.Vec2,
+	p0, p3, dir0, dir3: ig.Vec2,
 	node_rects: map[GlobalTableIndex]Rect2,
 	exclude_a, exclude_b: GlobalTableIndex,
 ) -> [dynamic]ig.Vec2 {
-	obstacles := find_obstacles(p0, p3, node_rects, exclude_a, exclude_b)
+	obstacles := find_obstacles(p0, p3, dir0, dir3, node_rects, exclude_a, exclude_b)
 	waypoints := make([dynamic]ig.Vec2, 0, 2 * len(obstacles), context.temp_allocator)
 	if len(obstacles) == 0 {
 		return waypoints
 	}
 	stagger := link_stagger(p0, p3)
 
+	// Waypoints have to come out ordered along the path's *direction of
+	// travel*, since the caller splices them between p0 and p3 in the order
+	// returned. find_obstacles hands them back sorted left-to-right, which
+	// is only the travel order when p0 is left of p3. A link running
+	// right-to-left (which happens as soon as a table is dragged past its FK
+	// partner — see the pin_is_input comment in main.odin, the pins flip
+	// edges but the FK's one/many roles don't) would otherwise get a
+	// waypoint list that doubles back on itself: out to the far obstacle's
+	// left edge, back right to its right edge, then reverse again to reach
+	// the endpoint — drawn as a hook/zigzag rather than a detour.
+	travels_right := p3.x >= p0.x
+
 	count := min(len(obstacles), LINK_ROUTE_MAX_OBSTACLES)
 	for i in 0 ..< count {
-		obstacle := obstacles[i]
+		obstacle := travels_right ? obstacles[i] : obstacles[len(obstacles) - 1 - i]
 		t: f32 = 0
 		if p3.x != p0.x {
 			t = clamp((obstacle.center_x - p0.x) / (p3.x - p0.x), 0, 1)
@@ -190,36 +217,39 @@ route_link_waypoints :: proc(
 		}
 		bump_y += stagger
 
-		append(&waypoints, ig.Vec2{obstacle.rect.min.x - LINK_ROUTE_MARGIN, bump_y})
-		append(&waypoints, ig.Vec2{obstacle.rect.max.x + LINK_ROUTE_MARGIN, bump_y})
+		// Near edge first, far edge second — "near" relative to the
+		// direction the path is actually running.
+		left_x := obstacle.rect.min.x - LINK_ROUTE_MARGIN
+		right_x := obstacle.rect.max.x + LINK_ROUTE_MARGIN
+		entry_x := travels_right ? left_x : right_x
+		exit_x := travels_right ? right_x : left_x
+
+		append(&waypoints, ig.Vec2{entry_x, bump_y})
+		append(&waypoints, ig.Vec2{exit_x, bump_y})
 	}
 	return waypoints
 }
 
-CHAIN_SEGMENT_SAMPLES :: 16
+SELF_LOOP_MARGIN :: 24.0
 
-// Builds one path through every control point in `points` (at least 2
-// entries) using the *same* per-segment construction as sample_direct_curve
-// for each consecutive pair — not a different spline style. That match
-// matters: it's what keeps every link in the diagram looking like one
-// consistent curve family rather than a mix of "straight-ish bezier" for a
-// simple link and "wavy spline" for anything routed around an obstacle.
-// It also joins cleanly with no visible kink at a waypoint for free: each
-// segment's own tangent at its endpoints is purely horizontal (the
-// bezier's control-point offset is x-only), so the outgoing tangent of one
-// segment and the incoming tangent of the next always match.
-sample_chained_curve :: proc(points: []ig.Vec2, out: ^[dynamic]ig.Vec2) {
-	segment: [CHAIN_SEGMENT_SAMPLES + 1]ig.Vec2
-	for i in 0 ..< len(points) - 1 {
-		sample_direct_curve(points[i], points[i + 1], segment[:])
-		// Every segment after the first shares its start point with the
-		// previous segment's end — skip it so the joint isn't duplicated.
-		start := i == 0 ? 0 : 1
-		for j in start ..< len(segment) {
-			append(out, segment[j])
-		}
-	}
+// Waypoints for a self-referencing FK (e.g. cards.parent_id -> cards.id) —
+// both pins belong to the same node, one on its right edge and one on its
+// left, so route_link_waypoints' obstacle-avoidance doesn't apply (a table
+// excludes itself from being its own obstacle, and there's no useful
+// "direct path" between two pins on one node to test in the first place).
+// Instead this always drops straight down from each pin to just below the
+// node's own bottom edge and back up into the other pin — a small loop
+// that reads immediately as "this table references itself" without ever
+// crossing the node's own body.
+self_loop_waypoints :: proc(one_pos, many_pos: ig.Vec2, node_rect: Rect2) -> [dynamic]ig.Vec2 {
+	below_y := node_rect.max.y + SELF_LOOP_MARGIN
+	waypoints := make([dynamic]ig.Vec2, 0, 2, context.temp_allocator)
+	append(&waypoints, ig.Vec2{one_pos.x, below_y})
+	append(&waypoints, ig.Vec2{many_pos.x, below_y})
+	return waypoints
 }
+
+CHAIN_SEGMENT_SAMPLES :: 16
 
 vec2_sub :: proc(a, b: ig.Vec2) -> ig.Vec2 {
 	return ig.Vec2{a.x - b.x, a.y - b.y}
@@ -237,9 +267,8 @@ vec2_length :: proc(a: ig.Vec2) -> f32 {
 	return math.sqrt(a.x * a.x + a.y * a.y)
 }
 
-// Unit vector, defaulting to pointing along +x for a (near-)zero input
-// rather than dividing by ~0 — only reachable if two consecutive path
-// samples coincide exactly, which doesn't happen in practice here.
+// Unit vector, defaulting to +x for a (near-)zero input rather than
+// dividing by ~0 — only reachable if two waypoints coincide exactly.
 vec2_normalize :: proc(a: ig.Vec2) -> ig.Vec2 {
 	length := vec2_length(a)
 	if length < 1e-4 {
@@ -253,16 +282,100 @@ vec2_perp :: proc(a: ig.Vec2) -> ig.Vec2 {
 	return ig.Vec2{-a.y, a.x}
 }
 
-// Walks along `path` from one end, accumulating segment length, and returns
-// the point exactly `distance` along it — interpolating within whichever
-// segment crosses that distance, or clamping to the far end if the path is
-// shorter than `distance` (only possible for a very short link, and still a
-// reasonable fallback: the anchor just ends up at the opposite pin).
-// `from_start` true walks from path[0]; false walks backward from the last
-// point. Used to find a real point on the *actual* rendered curve near a
-// pin, rather than assuming a fixed direction, so a cardinality glyph's
-// orientation always matches the curve it's attached to — including when a
-// routed link approaches its pin at a steep angle instead of head-on.
+// One cubic bezier segment from explicit start/end points and explicit
+// start/end tangent vectors (already scaled to the desired control-point
+// offset — not unit vectors). Same evaluation as sample_direct_curve, just
+// with the control points handed in rather than derived from a fixed
+// horizontal assumption — see sample_chained_curve.
+sample_hermite_segment :: proc(p0, p3, tangent0, tangent3: ig.Vec2, out: []ig.Vec2) {
+	p1 := vec2_add(p0, tangent0)
+	p2 := vec2_sub(p3, tangent3)
+	n := len(out)
+	for i in 0 ..< n {
+		t := f32(i) / f32(n - 1)
+		mt := 1 - t
+		a := mt * mt * mt
+		b := 3 * mt * mt * t
+		c := 3 * mt * t * t
+		d := t * t * t
+		out[i] = ig.Vec2 {
+			a * p0.x + b * p1.x + c * p2.x + d * p3.x,
+			a * p0.y + b * p1.y + c * p2.y + d * p3.y,
+		}
+	}
+}
+
+// Builds one path through every control point in `points` (at least 2
+// entries). dir_start/dir_end are the two true endpoints' own outward
+// directions (see sample_direct_curve). Two points (no waypoints — the
+// common case) goes straight through sample_direct_curve, unchanged. With
+// waypoints in between, each segment is still a cubic bezier — never a
+// different curve family — but the tangent at each interior waypoint is a
+// Catmull-Rom central difference (the direction from the waypoint before
+// to the one after) instead of a fixed assumption. A fixed tangent is only
+// meaningful at the two true endpoints, where it's exactly correct (see
+// draw_cardinality_glyphs); forcing it at every interior waypoint too meant
+// each individual segment between two nearby waypoints — often short,
+// since routing waypoints can sit close together — had barely enough
+// length for its own offset to visibly curve, so a multi-waypoint detour
+// chained a series of near-straight facets at slightly different angles
+// instead of one smooth curve. The two true endpoints keep their fixed
+// outward tangent regardless (matches the pin's actual rendered side —
+// see sample_direct_curve — and keeps this identical to the two-point case
+// whenever there are no waypoints to smooth between).
+sample_chained_curve :: proc(points: []ig.Vec2, dir_start, dir_end: ig.Vec2, out: ^[dynamic]ig.Vec2) {
+	segment: [CHAIN_SEGMENT_SAMPLES + 1]ig.Vec2
+	n := len(points)
+	if n == 2 {
+		sample_direct_curve(points[0], points[1], dir_start, dir_end, segment[:])
+		for p in segment {
+			append(out, p)
+		}
+		return
+	}
+
+	tangent_dirs := make([]ig.Vec2, n, context.temp_allocator)
+	tangent_dirs[0] = dir_start
+	tangent_dirs[n - 1] = dir_end
+	for i in 1 ..< n - 1 {
+		tangent_dirs[i] = vec2_normalize(vec2_sub(points[i + 1], points[i - 1]))
+	}
+
+	for i in 0 ..< n - 1 {
+		seg_len := vec2_length(vec2_sub(points[i + 1], points[i]))
+		scale := min(seg_len / 3.0, MAX_TANGENT_OFFSET)
+		t0 := vec2_scale(tangent_dirs[i], scale)
+		t1 := vec2_scale(tangent_dirs[i + 1], scale)
+		sample_hermite_segment(points[i], points[i + 1], t0, t1, segment[:])
+		// Every segment after the first shares its start point with the
+		// previous segment's end — skip it so the joint isn't duplicated.
+		start := i == 0 ? 0 : 1
+		for j in start ..< len(segment) {
+			append(out, segment[j])
+		}
+	}
+}
+
+CARDINALITY_FOOT_LEN :: 26.0
+CARDINALITY_FOOT_SPREAD :: 12.0
+CARDINALITY_CIRCLE_R :: 6.0
+CARDINALITY_TICK_DIST :: 20.0
+CARDINALITY_TICK_LEN :: 11.0
+
+// Walks along `path` from one end, accumulating segment length, and
+// returns the point exactly `distance` along it — interpolating within
+// whichever segment crosses that distance, or clamping to the far end if
+// the path is shorter than `distance`. `from_start` true walks from
+// path[0]; false walks backward from the last point. Used only to *place*
+// a glyph's outer vertex on the curve the link actually draws (so it never
+// visually detaches from the line, even where the curve bends quickly) —
+// never to derive a *direction* from. An earlier version used a secant
+// over this same distance for direction too, which could flip a glyph to
+// point back into the node instead of away from it whenever a waypoint
+// bent the curve sharply within that distance; direction now always comes
+// from the pin's actual known outward vector instead (see
+// draw_cardinality_glyphs), so this only ever affects where the glyph
+// sits, never which way it opens.
 point_at_arc_distance :: proc(path: []ig.Vec2, from_start: bool, distance: f32) -> ig.Vec2 {
 	n := len(path)
 	remaining := distance
@@ -288,46 +401,45 @@ point_at_arc_distance :: proc(path: []ig.Vec2, from_start: bool, distance: f32) 
 	return path[0]
 }
 
-CARDINALITY_FOOT_LEN :: 26.0
-CARDINALITY_FOOT_SPREAD :: 12.0
-CARDINALITY_CIRCLE_R :: 6.0
-CARDINALITY_TICK_DIST :: 20.0
-CARDINALITY_TICK_LEN :: 11.0
-
 // Crow's-foot-notation cardinality glyphs at each end of a link's already
 // (fully sampled) path: a crow's foot at the referencing/"many" pin (plus a
 // hollow circle if that column is nullable, marking the relationship
 // zero-or-many rather than one-or-many), and a single tick at the
 // referenced/"one" pin (a FK always points at exactly one parent row).
-// Orientation is derived from the actual curve near each pin (see
-// point_at_arc_distance) rather than assumed horizontal, so the glyph
-// lines up with the curve even where it enters at a steep angle — e.g. a
-// routed link bumping up and over an obstacle right before it reaches its
-// destination pin.
+// many_outward/one_outward are each pin's actual outward direction — see
+// the pin_is_input comment at the draw_fk_link call site in main.odin:
+// which edge of a node a pin renders on follows the tables' current
+// relative position, not the FK's one/many role, so this can be either
+// direction and must never be assumed fixed. The glyph's outer vertex
+// (far/near) is positioned by walking the actual curve — see
+// point_at_arc_distance — so it stays visually attached to the line even
+// where routing bends it quickly, but the fan/tick's own orientation
+// always comes from the known-correct outward vector, never from that
+// walk, so a sharp bend can change where the glyph sits without ever being
+// able to flip which way it opens.
 draw_cardinality_glyphs :: proc(
 	draw_list: ^ig.DrawList,
 	path: []ig.Vec2,
+	many_outward, one_outward: ig.Vec2,
 	many_optional: bool,
 	color: u32,
 	thickness: f32,
 ) {
 	many_pos := path[len(path) - 1]
-	one_pos := path[0]
 
 	far := point_at_arc_distance(path, false, CARDINALITY_FOOT_LEN)
-	outward := vec2_normalize(vec2_sub(far, many_pos))
-	perp := vec2_scale(vec2_perp(outward), CARDINALITY_FOOT_SPREAD)
+	perp := vec2_scale(vec2_perp(many_outward), CARDINALITY_FOOT_SPREAD)
 
 	ig.DrawList_AddLine(draw_list, far, many_pos, color, thickness)
 	ig.DrawList_AddLine(draw_list, far, vec2_add(many_pos, perp), color, thickness)
 	ig.DrawList_AddLine(draw_list, far, vec2_sub(many_pos, perp), color, thickness)
 	if many_optional {
-		centre := vec2_add(far, vec2_scale(outward, CARDINALITY_CIRCLE_R + 2.0))
+		centre := vec2_add(far, vec2_scale(many_outward, CARDINALITY_CIRCLE_R + 2.0))
 		ig.DrawList_AddCircle(draw_list, centre, CARDINALITY_CIRCLE_R, color, 0, thickness)
 	}
 
 	near := point_at_arc_distance(path, true, CARDINALITY_TICK_DIST)
-	tick_perp := vec2_scale(vec2_perp(vec2_normalize(vec2_sub(near, one_pos))), CARDINALITY_TICK_LEN)
+	tick_perp := vec2_scale(vec2_perp(one_outward), CARDINALITY_TICK_LEN)
 	ig.DrawList_AddLine(
 		draw_list,
 		vec2_add(near, tick_perp),
@@ -374,12 +486,30 @@ draw_fk_link :: proc(
 	node_rects: map[GlobalTableIndex]Rect2,
 	one_table, many_table: GlobalTableIndex,
 	one_pos, many_pos: ig.Vec2,
+	one_outward, many_outward: ig.Vec2,
 	many_optional: bool,
 	color: u32,
 	hover_color: u32,
 	thickness: f32,
 ) {
-	waypoints := route_link_waypoints(one_pos, many_pos, node_rects, one_table, many_table)
+	waypoints: [dynamic]ig.Vec2
+	if one_table == many_table {
+		if rect, ok := node_rects[one_table]; ok {
+			waypoints = self_loop_waypoints(one_pos, many_pos, rect)
+		} else {
+			waypoints = make([dynamic]ig.Vec2, 0, 0, context.temp_allocator)
+		}
+	} else {
+		waypoints = route_link_waypoints(
+			one_pos,
+			many_pos,
+			one_outward,
+			many_outward,
+			node_rects,
+			one_table,
+			many_table,
+		)
+	}
 
 	// Always the same construction — see sample_chained_curve — whether or
 	// not there were any waypoints to route around, so a routed link and a
@@ -397,7 +527,7 @@ draw_fk_link :: proc(
 		(len(control_points) - 1) * CHAIN_SEGMENT_SAMPLES + 1,
 		context.temp_allocator,
 	)
-	sample_chained_curve(control_points[:], &path)
+	sample_chained_curve(control_points[:], one_outward, many_outward, &path)
 
 	draw_color := color
 	draw_thickness := thickness
@@ -407,5 +537,13 @@ draw_fk_link :: proc(
 	}
 
 	ig.DrawList_AddPolyline(draw_list, &path[0], i32(len(path)), draw_color, draw_thickness)
-	draw_cardinality_glyphs(draw_list, path[:], many_optional, draw_color, draw_thickness)
+	draw_cardinality_glyphs(
+		draw_list,
+		path[:],
+		many_outward,
+		one_outward,
+		many_optional,
+		draw_color,
+		draw_thickness,
+	)
 }

@@ -621,7 +621,10 @@ compute_layer_order :: proc(
 			}
 			from_t := GlobalTableIndex(u32(from_i))
 			to_t := GlobalTableIndex(u32(to_i))
-			if from_t == state.seed_table || !visible[from_t] || !visible[to_t] {
+			// See the matching guard in main.odin's compute_layer_order: a
+			// self-referencing FK makes from_hop == to_hop always, which
+			// without this check never stops "relaxing".
+			if from_t == state.seed_table || from_t == to_t || !visible[from_t] || !visible[to_t] {
 				continue
 			}
 			from_hop, from_ok := hop[from_t]

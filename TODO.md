@@ -202,8 +202,10 @@ click (O(V) placement, no per-frame cost).
       (output) end is a filled circle — the "one" side. Shape contrast keeps
       both ends of every link readable even when one column is the endpoint
       of many links — superseded below by crow's-foot glyphs drawn on the
-      link itself; the per-pin triangle/circle are now shrunk to a
-      near-invisible anchor dot so they don't double up with the new glyphs
+      link itself; the per-pin triangle/circle are now fully transparent
+      (`ImNodesCol.Pin`/`PinHovered` alpha 0) rather than merely shrunk, since
+      a shrunk-but-opaque marker was still a visible dot up close or against
+      a high-contrast theme
 - [x] `[L]` `[P1]` `[gui]` Replace the seed-centred radial ring layout with a
       layered (Sugiyama-style) layout: tables ranked by hop distance from the
       seed (relaxed by FK direction so a same-rank FK never loops sideways),
@@ -213,6 +215,19 @@ click (O(V) placement, no per-frame cost).
       so nothing overlaps. `test/repro_layout.odin` validates it standalone
       at scale (no overlapping tables, crossing/link-node-overlap metrics,
       rank-span histogram) against real `.db` files.
+- [x] `[S]` `[P0]` `[gui]` Fixed a rank-relaxation bug that could strand part
+      of the layout tens of ranks away from the rest of it, with nothing but
+      a wide empty gap between them (auto-pan then centres on that gap,
+      making the diagram look completely empty until you scroll). Cause: a
+      self-referencing FK (`cards.parent_id -> cards.id` in the seed
+      schema) has `from_t == to_t`, so `compute_layer_order`'s relaxation
+      condition `from_hop <= to_hop` reads the same map entry on both sides
+      and is trivially true forever — the table's own rank climbed by
+      exactly one on every single pass with no way to converge, until the
+      64-iteration cap stopped it 64 ranks out. Fixed by excluding
+      self-referencing FKs from rank relaxation (`main.odin` and its
+      standalone port in `test/repro_layout.odin`) — confirmed with
+      `repro_layout.exe seed.db 0 2`, rank count dropped from 70 to 7.
 - [x] `[L]` `[P1]` `[gui]` Custom obstacle-avoiding FK link routing +
       ER cardinality glyphs (`link_routing.odin`): ImNodes' own `Link()`
       draws a fixed two-point bezier with no obstacle awareness, which is
@@ -223,13 +238,47 @@ click (O(V) placement, no per-frame cost).
       table's screen rect and FK pin position is captured fresh each frame
       straight from what ImNodes just drew, so a routed link tracks a drag
       or pan for free. Each link samples the plain direct bezier, detects
-      which other visible tables it actually crosses, bumps around them
-      with a couple of waypoints, then smooths the whole path with a
-      Catmull-Rom spline (an unobstructed link still looks like the
-      original bezier). Also draws crow's-foot notation at each end (crow's
-      foot + optional hollow circle for a nullable referencing column on
-      the "many" end, a single tick on the "one" end).
+      which other visible tables it actually crosses, and bumps around them
+      with a couple of waypoints. Every segment is still the same cubic
+      bezier family (never a different spline style, so a routed link and a
+      plain one never look like two different kinds of line): a two-point
+      link uses ImNodes' own fixed-horizontal-tangent construction
+      unchanged, while a multi-waypoint link blends each interior
+      waypoint's tangent Catmull-Rom style (direction from the waypoint
+      before to the one after) so a detour reads as one smooth curve
+      instead of a chain of near-straight facets — the two true endpoints
+      still keep the fixed horizontal tangent the cardinality glyphs rely
+      on. The per-segment tangent offset is capped (`MAX_TANGENT_OFFSET`)
+      so several links sharing one pin (e.g. every table with a
+      `company_id` referencing the same `companies.id`) diverge from it
+      much sooner instead of travelling in lockstep on a long near-straight
+      run that reads as an extra, fake crow's foot swallowing the real
+      glyph. Also draws crow's-foot notation at each end (crow's foot +
+      optional hollow circle for a nullable referencing column on the
+      "many" end, a single tick on the "one" end), oriented by the pin's
+      fixed side (always exactly horizontal — input pins are always a
+      node's left edge, output always right — never derived from the
+      routed path's local shape, which an earlier version tried and which
+      could flip the glyph to the wrong side when a waypoint bent the curve
+      sharply close to a pin). A self-referencing FK (one_table ==
+      many_table) skips obstacle routing entirely — there's no useful
+      direct path between two pins on the same node to test — and instead
+      always loops from each pin straight down to just below the node's
+      own bottom edge and back up into the other pin.
       `test/repro_link_routing.odin` checks the routing math standalone.
+- [x] `[S]` `[P1]` `[gui]` Link colour and thickness moved into the theme
+      system: `ThemeData.link_color`/`link_thickness`, parsed from a
+      `[diagram_links]` section (`colour`/`color` and `thickness` keys) in
+      each `.ssTheme` file, applied in `apply_theme`. All four themes tuned:
+      Paper & Ink Light/Dark use blueprint blue variants, OLED Dark uses a
+      vivid bright blue to read on pure black, and the new Blueprint theme
+      (see below) uses its own white ink colour so links match its
+      monochrome cyanotype look.
+- [x] `[M]` `[P2]` `[theme]` Added a fourth theme, Blueprint
+      (`assets/themes/blueprint.ssTheme`): cyanotype print style, white/pale
+      linework on deep Prussian-blue paper, monochrome by design (no
+      separate accent hue — separation comes from value and alpha, same
+      approach as OLED Dark but inverted to a blue field instead of black).
 - [ ] `[M]` `[P3]` `[gui]` The link router's obstacle detour is a single
       greedy pass (see `route_link_waypoints` in `link_routing.odin`): a
       dense cluster of overlapping obstacles (e.g. a heavily-shared hub
@@ -237,6 +286,47 @@ click (O(V) placement, no per-frame cost).
       after routing around the first one. Revisit if that shows up in
       practice — an iterative re-check pass, or dummy-node rank reservation
       in the layout itself, are the two standard fixes.
+- [ ] `[S]` `[P3]` `[gui]` A self-referencing FK's loop (see above) doesn't
+      run obstacle avoidance against *other* visible tables — only against
+      its own node, which it excludes by construction. In practice the loop
+      stays within a small margin below its own card, so a collision with
+      an unrelated table would need one positioned immediately below at
+      that exact margin; hasn't been observed, but worth a real obstacle
+      check if it ever shows up.
+- [ ] `[S]` `[P3]` `[gui]` Several links leaving the same shared pin still
+      briefly overlap right at the pin itself before diverging (the capped
+      tangent offset above reduces how far they travel together, but can't
+      eliminate the overlap outright — every link is required to leave a
+      pin on an exactly horizontal tangent, which is what makes the
+      cardinality glyph orientation guarantee possible). Revisit only if
+      this is still a legibility problem in practice.
+- [x] `[M]` `[P1]` `[gui]` Fixed link curves/glyphs breaking (curve
+      launching into the node, cardinality glyph pointing the wrong way or
+      floating off the visible line) once a table was dragged past its FK
+      partner. Cause: `main.odin` deliberately reassigns which edge a pin
+      renders on based on the two tables' *current* relative x position —
+      "the left table's pin is an output/right edge, the right table's pin
+      an input/left edge" (see the `pin_is_input` comment) — so links
+      always flow left-to-right visually, regardless of the FK's one/many
+      role. `link_routing.odin`'s curve construction and cardinality-glyph
+      code never knew about this: they assumed the "one" pin always opens
+      +x and the "many" pin always opens -x, which only holds in the
+      default/unmoved layout. Fixed by threading each pin's *actual*
+      outward direction (derived from `pin_is_input` at the `draw_fk_link`
+      call site) through `sample_direct_curve`, `sample_chained_curve`, and
+      `draw_cardinality_glyphs` instead of assuming a fixed side.
+      Also fixed while in there: a cardinality glyph's outer vertex (and,
+      worse, the optional hollow nullable-circle beyond it) was positioned
+      by a fixed offset along the outward direction, not by anything on the
+      actual curve — fine when the curve stayed near-straight that far out,
+      but visibly detached from the line whenever routing bent the curve
+      away before reaching that distance (reported as "what is the circle
+      … why is that not on the link line?"). Fixed by reintroducing a
+      bounded arc-length walk along the real path (`point_at_arc_distance`)
+      to place the vertex — but only for *position*; orientation (which
+      way the fan/tick opens) still always comes from the known-correct
+      outward vector, never from that walk, which is what keeps this from
+      reintroducing the earlier "wrong side" bug a pure-secant approach had.
 - [x] `[S]` `[P2]` `[gui]` Default view on schema load: One Degree around the
       first table (seed table 0, list selection 0, node selected)
 - [x] `[S]` `[P2]` `[gui]` Centre the seed in the editor viewport whenever the
