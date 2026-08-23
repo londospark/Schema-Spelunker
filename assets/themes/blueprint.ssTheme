@@ -1,0 +1,66 @@
+name = "Blueprint"
+author = "Schema Spelunker"
+
+# Blueprint theme — cyanotype print style: white/pale linework on deep
+# Prussian-blue paper, like an old architectural blueprint. Monochrome by
+# design (no separate accent hue) — separation comes from value and alpha,
+# same as the OLED theme's approach, just inverted to a blue field instead
+# of black.
+
+[text]
+main = "#EAF2FF"
+muted = "#7FA8D9"
+
+[background]
+window = "#0B2A4A"
+child = "#0B2A4A"
+popup = "#0F3460"
+
+[controls]
+frame = "#123561"
+frame_hover = "#1B4A82"
+frame_active = "#245A99"
+
+[title_bar]
+background = "#0A2647"
+background_focus = "#123561"
+background_faded = "#0A2647"
+
+[table_card]
+background = "#0F3460"
+background_hovered = "#154276"
+background_selected = "#1B4A82"
+outline = "#EAF2FF"
+
+[border]
+main = "#7FA8D9"
+subtle = "#3D6FA3"
+
+[diagram_grid]
+background = "#0B2A4A"
+line = "#1F4A78"
+
+[diagram_links]
+colour = "#EAF2FF"
+thickness = 2.2
+
+[accent]
+colour = "#EAF2FF"
+
+[glass]
+backdrop = "mica"
+backdrop_alpha = 1.0
+popup_alpha = 1.0
+
+[layout]
+corner_rounding = 2
+scrollbar_size = 14
+grab_min_size = 12
+item_spacing = horizontal: 8, vertical: 6
+item_inner_spacing = horizontal: 6, vertical: 4
+window_padding = horizontal: 12, vertical: 12
+frame_padding = horizontal: 6, vertical: 4
+cell_padding = horizontal: 6, vertical: 4
+border_width = 1
+frame_border_width = 1
+tab_border_width = 1

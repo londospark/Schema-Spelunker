@@ -1,0 +1,64 @@
+name = "Nord"
+author = "Schema Spelunker"
+
+# Nord — the cold, calm polar palette: blue-grey surfaces, frost-toned
+# accents, and the aurora colours held in reserve. All borders and separators
+# come from the standard Nord step ladder.
+
+[text]
+main = "#D8DEE9"
+muted = "#616E88"
+
+[background]
+window = "#2E3440"
+child = "#2E3440"
+popup = "#3B4252"
+
+[controls]
+frame = "#3B4252"
+frame_hover = "#434C5E"
+frame_active = "#81A1C1"
+
+[title_bar]
+background = "#3B4252"
+background_focus = "#434C5E"
+background_faded = "#3B4252"
+
+[table_card]
+background = "#3B4252"
+background_hovered = "#434C5E"
+background_selected = "#4C566A"
+outline = "#4C566A"
+
+[border]
+main = "#4C566A"
+subtle = "#434C5E"
+
+[diagram_grid]
+background = "#2E3440"
+line = "#3B4252"
+
+[diagram_links]
+colour = "#88C0D0"
+thickness = 2.0
+
+[accent]
+colour = "#5E81AC"
+
+[glass]
+backdrop = "none"
+backdrop_alpha = 1.0
+popup_alpha = 1.0
+
+[layout]
+corner_rounding = 2
+scrollbar_size = 14
+grab_min_size = 12
+item_spacing = horizontal: 8, vertical: 6
+item_inner_spacing = horizontal: 6, vertical: 4
+window_padding = horizontal: 12, vertical: 12
+frame_padding = horizontal: 6, vertical: 4
+cell_padding = horizontal: 6, vertical: 4
+border_width = 1
+frame_border_width = 1
+tab_border_width = 1

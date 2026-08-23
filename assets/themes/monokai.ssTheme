@@ -1,0 +1,65 @@
+name = "Monokai"
+author = "Schema Spelunker"
+
+# Monokai — the classic text-editor palette: near-black background, warm
+# off-white text, and the iconic magenta/cyan/orange/green accent set.
+# Links run cyan, interactions flash magenta, diagram nodes sit on the
+# familiar editor-dark canvas.
+
+[text]
+main = "#F8F8F2"
+muted = "#75715E"
+
+[background]
+window = "#272822"
+child = "#272822"
+popup = "#2E2F29"
+
+[controls]
+frame = "#3A3B33"
+frame_hover = "#4A4B41"
+frame_active = "#F92672"
+
+[title_bar]
+background = "#1E1F1C"
+background_focus = "#232420"
+background_faded = "#1E1F1C"
+
+[table_card]
+background = "#2E2F29"
+background_hovered = "#3A3B33"
+background_selected = "#494A40"
+outline = "#75715E"
+
+[border]
+main = "#494A40"
+subtle = "#3A3B33"
+
+[diagram_grid]
+background = "#272822"
+line = "#3A3B33"
+
+[diagram_links]
+colour = "#66D9EF"
+thickness = 2.0
+
+[accent]
+colour = "#F92672"
+
+[glass]
+backdrop = "none"
+backdrop_alpha = 1.0
+popup_alpha = 1.0
+
+[layout]
+corner_rounding = 2
+scrollbar_size = 14
+grab_min_size = 12
+item_spacing = horizontal: 8, vertical: 6
+item_inner_spacing = horizontal: 6, vertical: 4
+window_padding = horizontal: 12, vertical: 12
+frame_padding = horizontal: 6, vertical: 4
+cell_padding = horizontal: 6, vertical: 4
+border_width = 1
+frame_border_width = 1
+tab_border_width = 1

@@ -1,0 +1,66 @@
+name = "Hot Dog Stand"
+author = "Schema Spelunker"
+
+# The "Hot Dog Stand" color scheme, faithfully reimagined from the Windows
+# 3.1 Control Panel (the one the power users had on lockdown for a reason).
+# This is a MEME theme: gaudy is the point. Black desktop, yellow windows
+# with blue text, red title bars and menus, hot-pink links and highlights.
+# Contrast consultants were not consulted. Swing by any time.
+
+[text]
+main = "#0000FF"
+muted = "#4F4FA6"
+
+[background]
+window = "#FFFF00"
+child = "#FFFF00"
+popup = "#FF0000"
+
+[controls]
+frame = "#FF0000"
+frame_hover = "#FF00FF"
+frame_active = "#FFFF00"
+
+[title_bar]
+background = "#FF0000"
+background_focus = "#FF0000"
+background_faded = "#AA0000"
+
+[table_card]
+background = "#FFFF00"
+background_hovered = "#FFD500"
+background_selected = "#FF00FF"
+outline = "#AA0000"
+
+[border]
+main = "#000000"
+subtle = "#666600"
+
+[diagram_grid]
+background = "#000000"
+line = "#800080"
+
+[diagram_links]
+colour = "#FF00FF"
+thickness = 2.0
+
+[accent]
+colour = "#FF00FF"
+
+[glass]
+backdrop = "none"
+backdrop_alpha = 1.0
+popup_alpha = 1.0
+
+[layout]
+corner_rounding = 2
+scrollbar_size = 14
+grab_min_size = 12
+item_spacing = horizontal: 8, vertical: 6
+item_inner_spacing = horizontal: 6, vertical: 4
+window_padding = horizontal: 12, vertical: 12
+frame_padding = horizontal: 6, vertical: 4
+cell_padding = horizontal: 6, vertical: 4
+border_width = 1
+frame_border_width = 1
+tab_border_width = 1
