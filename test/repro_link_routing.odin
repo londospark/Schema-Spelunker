@@ -156,39 +156,22 @@ route_link_waypoints :: proc(
 	return waypoints
 }
 
-CATMULL_SEGMENTS_PER_SPAN :: 16
+CHAIN_SEGMENT_SAMPLES :: 16
 
-sample_catmull_rom_segment :: proc(p0, p1, p2, p3: Vec2, out: ^[dynamic]Vec2) {
-	for s in 0 ..< CATMULL_SEGMENTS_PER_SPAN {
-		t := f32(s) / f32(CATMULL_SEGMENTS_PER_SPAN)
-		t2 := t * t
-		t3 := t2 * t
-		x :=
-			0.5 *
-			((2 * p1.x) +
-					(-p0.x + p2.x) * t +
-					(2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
-					(-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3)
-		y :=
-			0.5 *
-			((2 * p1.y) +
-					(-p0.y + p2.y) * t +
-					(2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
-					(-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3)
-		append(out, Vec2{x, y})
+// Same per-segment construction as sample_direct_curve for every
+// consecutive pair of control points, chained together — see
+// link_routing.odin's sample_chained_curve for why this replaced a
+// Catmull-Rom spline: a routed link and a plain one must render as the same
+// curve family, not two different-looking styles.
+sample_chained_curve :: proc(points: []Vec2, out: ^[dynamic]Vec2) {
+	segment: [CHAIN_SEGMENT_SAMPLES + 1]Vec2
+	for i in 0 ..< len(points) - 1 {
+		sample_direct_curve(points[i], points[i + 1], segment[:])
+		start := i == 0 ? 0 : 1
+		for j in start ..< len(segment) {
+			append(out, segment[j])
+		}
 	}
-}
-
-sample_smooth_path :: proc(points: []Vec2, out: ^[dynamic]Vec2) {
-	n := len(points)
-	for i in 0 ..< n - 1 {
-		p0 := points[max(i - 1, 0)]
-		p1 := points[i]
-		p2 := points[i + 1]
-		p3 := points[min(i + 2, n - 1)]
-		sample_catmull_rom_segment(p0, p1, p2, p3, out)
-	}
-	append(out, points[n - 1])
 }
 
 path_overlaps_rect :: proc(path: []Vec2, r: Rect2) -> bool {
@@ -241,7 +224,7 @@ main :: proc() {
 		append(&control_points, p3)
 
 		path := make([dynamic]Vec2, 0, 256)
-		sample_smooth_path(control_points[:], &path)
+		sample_chained_curve(control_points[:], &path)
 
 		check("routed path clears the obstacle", !path_overlaps_rect(path[:], obstacle))
 

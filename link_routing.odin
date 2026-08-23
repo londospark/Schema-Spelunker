@@ -174,42 +174,29 @@ route_link_waypoints :: proc(
 	return waypoints
 }
 
-CATMULL_SEGMENTS_PER_SPAN :: 16
+CHAIN_SEGMENT_SAMPLES :: 16
 
-sample_catmull_rom_segment :: proc(p0, p1, p2, p3: ig.Vec2, out: ^[dynamic]ig.Vec2) {
-	for s in 0 ..< CATMULL_SEGMENTS_PER_SPAN {
-		t := f32(s) / f32(CATMULL_SEGMENTS_PER_SPAN)
-		t2 := t * t
-		t3 := t2 * t
-		x :=
-			0.5 *
-			((2 * p1.x) +
-					(-p0.x + p2.x) * t +
-					(2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
-					(-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3)
-		y :=
-			0.5 *
-			((2 * p1.y) +
-					(-p0.y + p2.y) * t +
-					(2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
-					(-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3)
-		append(out, ig.Vec2{x, y})
+// Builds one path through every control point in `points` (at least 2
+// entries) using the *same* per-segment construction as sample_direct_curve
+// for each consecutive pair — not a different spline style. That match
+// matters: it's what keeps every link in the diagram looking like one
+// consistent curve family rather than a mix of "straight-ish bezier" for a
+// simple link and "wavy spline" for anything routed around an obstacle.
+// It also joins cleanly with no visible kink at a waypoint for free: each
+// segment's own tangent at its endpoints is purely horizontal (the
+// bezier's control-point offset is x-only), so the outgoing tangent of one
+// segment and the incoming tangent of the next always match.
+sample_chained_curve :: proc(points: []ig.Vec2, out: ^[dynamic]ig.Vec2) {
+	segment: [CHAIN_SEGMENT_SAMPLES + 1]ig.Vec2
+	for i in 0 ..< len(points) - 1 {
+		sample_direct_curve(points[i], points[i + 1], segment[:])
+		// Every segment after the first shares its start point with the
+		// previous segment's end — skip it so the joint isn't duplicated.
+		start := i == 0 ? 0 : 1
+		for j in start ..< len(segment) {
+			append(out, segment[j])
+		}
 	}
-}
-
-// Smooth path through every point in `points` (at least 2 entries),
-// duplicating the end points as their own neighbour so the first/last span
-// still has a well-defined tangent instead of a sharp corner.
-sample_smooth_path :: proc(points: []ig.Vec2, out: ^[dynamic]ig.Vec2) {
-	n := len(points)
-	for i in 0 ..< n - 1 {
-		p0 := points[max(i - 1, 0)]
-		p1 := points[i]
-		p2 := points[i + 1]
-		p3 := points[min(i + 2, n - 1)]
-		sample_catmull_rom_segment(p0, p1, p2, p3, out)
-	}
-	append(out, points[n - 1])
 }
 
 CARDINALITY_FOOT_LEN :: 20.0
@@ -288,32 +275,24 @@ draw_fk_link :: proc(
 ) {
 	waypoints := route_link_waypoints(one_pos, many_pos, node_rects, one_table, many_table)
 
-	if len(waypoints) == 0 {
-		samples: RoutingSamples
-		sample_direct_curve(one_pos, many_pos, samples[:])
-		ig.DrawList_AddPolyline(draw_list, &samples[0], i32(len(samples)), color, thickness)
-	} else {
-		control_points := make(
-			[dynamic]ig.Vec2,
-			0,
-			len(waypoints) + 2,
-			context.temp_allocator,
-		)
-		append(&control_points, one_pos)
-		for wp in waypoints {
-			append(&control_points, wp)
-		}
-		append(&control_points, many_pos)
-
-		path := make(
-			[dynamic]ig.Vec2,
-			0,
-			(len(control_points) - 1) * CATMULL_SEGMENTS_PER_SPAN + 1,
-			context.temp_allocator,
-		)
-		sample_smooth_path(control_points[:], &path)
-		ig.DrawList_AddPolyline(draw_list, &path[0], i32(len(path)), color, thickness)
+	// Always the same construction — see sample_chained_curve — whether or
+	// not there were any waypoints to route around, so a routed link and a
+	// plain one never look like two different kinds of line.
+	control_points := make([dynamic]ig.Vec2, 0, len(waypoints) + 2, context.temp_allocator)
+	append(&control_points, one_pos)
+	for wp in waypoints {
+		append(&control_points, wp)
 	}
+	append(&control_points, many_pos)
+
+	path := make(
+		[dynamic]ig.Vec2,
+		0,
+		(len(control_points) - 1) * CHAIN_SEGMENT_SAMPLES + 1,
+		context.temp_allocator,
+	)
+	sample_chained_curve(control_points[:], &path)
+	ig.DrawList_AddPolyline(draw_list, &path[0], i32(len(path)), color, thickness)
 
 	draw_cardinality_glyphs(draw_list, many_pos, one_pos, many_optional, color, thickness)
 }
