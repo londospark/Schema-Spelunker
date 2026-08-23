@@ -117,22 +117,39 @@ SQLite schema browser. SDL3 + Dear ImGui + OpenGL 3.3.
 - Schema data model: typed structs + arena (`Schema`, `Table`, `Column`, `ForeignKey`) with FK resolution to `GlobalColumnIndex`. Loaded through the `Backend` abstraction in `schema_load.odin`; SQLite is the only backend so far.
 - Diagram: ImNodes node editor; One/Two Degree buttons (also shown in the
   schema list, acting on the selection) run a BFS over the FK graph from the
-  seed table and filter visible nodes, Show All restores the full set; FK
-  links drawn between visible endpoint tables (pin ids = `GlobalColumnIndex`,
-  link ids = FK schema index; pin shapes double as cardinality markers —
-  filled triangle on the referencing "many" end, filled circle on the
-  referenced "one" end). Opening a database defaults to One Degree from the
-  first table. A click (release without drag) on a table in the diagram or
-  the schema list retargets the seed (accent-tinted title bar marks it);
-  dragging a node only moves it. Seed-centred radial layout runs on every
-  view change: the seed sits at the origin, other tables on rings matching
-  their FK hop distance (children ordered near their parent, ring radius
-  grows with ring size, unreachable tables outermost). Positions are cached
-  and mirrored back from ImNodes each frame (drags persist within a view),
-  and a refresh with an unchanged seed + visible set is skipped, so
-  re-clicking the active table costs nothing. Whenever the view re-lays out,
-  the editor pans so the seed sits at the centre of the viewport
-  (`EditorContextResetPanning`, exported via the dcimnodes wrapper).
+  seed table and filter visible nodes, Show All restores the full set; pin
+  ids are `GlobalColumnIndex`. Opening a database defaults to One Degree from
+  the first table. A click (release without drag) on a table in the diagram
+  or the schema list retargets the seed (accent-tinted title bar marks it);
+  dragging a node only moves it.
+  Layout: layered (Sugiyama-style), not the original radial rings — tables
+  are ranked by hop distance from the seed (relaxed by FK direction so a
+  same-rank FK never loops sideways), ranks stack left-to-right, ordered
+  within each rank by barycenter + transpose crossing-reduction sweeps, then
+  packed using each table's real ImNodes-rendered size (`node_size`) so
+  nothing overlaps. Positions are cached and mirrored back from ImNodes each
+  frame (drags persist within a view), and a refresh with an unchanged seed +
+  visible set is skipped, so re-clicking the active table costs nothing.
+  Whenever the view re-lays out, the editor pans so the whole layout sits at
+  the centre of the viewport (`EditorContextResetPanning`, exported via the
+  dcimnodes wrapper). `test/repro_layout.odin` is a standalone, no-GUI
+  harness that validates the layout at scale against real `.db` files
+  (overlap-free, plus crossing/link-node-overlap metrics).
+  Links: drawn ourselves (`link_routing.odin`), not through ImNodes' own
+  `Link()` — that draws a fixed two-point bezier with no obstacle awareness.
+  Every visible table's screen rect and FK pin position is captured fresh
+  each frame straight from what ImNodes just drew (via `DrawList_*` and
+  node/pin item rects — no vendor edits, see "Vendoring rules" above), so a
+  routed link tracks a drag or pan for free. Each link samples the plain
+  direct bezier, detours around any other visible table it actually crosses
+  with a couple of waypoints, then smooths the whole path with a
+  Catmull-Rom spline — an unobstructed link still looks like the original
+  bezier. Cardinality is drawn as crow's-foot notation on the link itself
+  (crow's foot + hollow circle if the referencing column is nullable on the
+  "many" end, a single tick on the "one" end); the per-pin
+  triangle/circle ImNodes shapes are shrunk to a near-invisible anchor dot
+  so they don't double up with these. `test/repro_link_routing.odin` checks
+  the routing math standalone.
 - Debugging: Zed debugger (DAP) via `.zed/debug.json` — CodeLLDB adapter
   launches the debug build (the per-OS Debug task runs `build.bat debug` /
   `build.sh debug` first); press F4 (`debugger: start`) for the new-process

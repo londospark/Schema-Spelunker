@@ -199,7 +199,43 @@ click (O(V) placement, no per-frame cost).
       (input) end is a filled triangle — the "many" side; the referenced
       (output) end is a filled circle — the "one" side. Shape contrast keeps
       both ends of every link readable even when one column is the endpoint
-      of many links
+      of many links — superseded below by crow's-foot glyphs drawn on the
+      link itself; the per-pin triangle/circle are now shrunk to a
+      near-invisible anchor dot so they don't double up with the new glyphs
+- [x] `[L]` `[P1]` `[gui]` Replace the seed-centred radial ring layout with a
+      layered (Sugiyama-style) layout: tables ranked by hop distance from the
+      seed (relaxed by FK direction so a same-rank FK never loops sideways),
+      ranks stack left-to-right (matches ImNodes' fixed left-input/
+      right-output link curve shape), ordered within each rank by barycenter
+      + transpose crossing-reduction sweeps, then packed using each table's
+      real ImNodes-rendered size (`node_size`, mirrored back every frame)
+      so nothing overlaps. `test/repro_layout.odin` validates it standalone
+      at scale (no overlapping tables, crossing/link-node-overlap metrics,
+      rank-span histogram) against real `.db` files.
+- [x] `[L]` `[P1]` `[gui]` Custom obstacle-avoiding FK link routing +
+      ER cardinality glyphs (`link_routing.odin`): ImNodes' own `Link()`
+      draws a fixed two-point bezier with no obstacle awareness, which is
+      the real ceiling on how clean the diagram looks regardless of layout
+      quality. Replaced with our own link drawing, built entirely on
+      ImNodes' existing Odin bindings (`DrawList_*`, node/pin item rects —
+      no vendor edits, see AGENTS.md's "Vendoring rules") — every visible
+      table's screen rect and FK pin position is captured fresh each frame
+      straight from what ImNodes just drew, so a routed link tracks a drag
+      or pan for free. Each link samples the plain direct bezier, detects
+      which other visible tables it actually crosses, bumps around them
+      with a couple of waypoints, then smooths the whole path with a
+      Catmull-Rom spline (an unobstructed link still looks like the
+      original bezier). Also draws crow's-foot notation at each end (crow's
+      foot + optional hollow circle for a nullable referencing column on
+      the "many" end, a single tick on the "one" end).
+      `test/repro_link_routing.odin` checks the routing math standalone.
+- [ ] `[M]` `[P3]` `[gui]` The link router's obstacle detour is a single
+      greedy pass (see `route_link_waypoints` in `link_routing.odin`): a
+      dense cluster of overlapping obstacles (e.g. a heavily-shared hub
+      table's whole neighbourhood) can still leave a residual close call
+      after routing around the first one. Revisit if that shows up in
+      practice — an iterative re-check pass, or dummy-node rank reservation
+      in the layout itself, are the two standard fixes.
 - [x] `[S]` `[P2]` `[gui]` Default view on schema load: One Degree around the
       first table (seed table 0, list selection 0, node selected)
 - [x] `[S]` `[P2]` `[gui]` Centre the seed in the editor viewport whenever the
