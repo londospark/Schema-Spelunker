@@ -60,6 +60,10 @@ ThemeData :: struct {
 	grid_bg:              ig.Vec4,
 	grid_line:            ig.Vec4,
 
+	// [diagram_links]
+	link_color:           ig.Vec4,
+	link_thickness:       f32,
+
 	// [accent]
 	accent_colour:        ig.Vec4,
 
@@ -157,6 +161,8 @@ default_theme_data :: proc() -> ThemeData {
 		border_subtle = {0.85, 0.85, 0.82, 1.00},
 		grid_bg = {0.96, 0.96, 0.94, 1.00},
 		grid_line = {0.85, 0.85, 0.82, 1.00},
+		link_color = {0.17, 0.34, 0.59, 1.00},
+		link_thickness = 2.0,
 		accent_colour = {0.17, 0.34, 0.59, 1.00},
 		backdrop = .Mica,
 		backdrop_alpha = 1.0,
@@ -297,6 +303,15 @@ parse_ssTheme :: proc(filename: string, allocator: mem.Allocator) -> (ThemeData,
 				if v, v_ok := hex_to_vec4(raw_val); v_ok {data.grid_bg = v}
 			case "line":
 				if v, v_ok := hex_to_vec4(raw_val); v_ok {data.grid_line = v}
+			}
+		case "diagram_links":
+			switch key {
+			case "colour":
+				if v, v_ok := hex_to_vec4(raw_val); v_ok {data.link_color = v}
+			case "color":
+				if v, v_ok := hex_to_vec4(raw_val); v_ok {data.link_color = v}
+			case "thickness":
+				if v, v_ok := strconv.parse_f32(raw_val); v_ok {data.link_thickness = v}
 			}
 		case "accent":
 			switch key {
@@ -551,12 +566,13 @@ apply_theme :: proc(data: ThemeData) {
 	imn_style.colors[imn.Col.TitleBarHovered] = imn_col(v.x, v.y, v.z, v.w)
 	imn_style.colors[imn.Col.TitleBarSelected] = imn_col(v.x, v.y, v.z, v.w)
 
-	v = accent
+	v = data.link_color
 	imn_style.colors[imn.Col.Link] = imn_col(v.x, v.y, v.z, v.w)
-	v = vec4_with_alpha(accent, 0.85)
+	v = vec4_with_alpha(data.link_color, 0.85)
 	imn_style.colors[imn.Col.LinkHovered] = imn_col(v.x, v.y, v.z, v.w)
-	v = vec4_with_alpha(accent, 0.72)
+	v = vec4_with_alpha(data.link_color, 0.72)
 	imn_style.colors[imn.Col.LinkSelected] = imn_col(v.x, v.y, v.z, v.w)
+	imn_style.link_thickness = data.link_thickness
 	imn_style.colors[imn.Col.Pin] = imn_col(accent.x, accent.y, accent.z, accent.w)
 	v = vec4_with_alpha(accent, 0.85)
 	imn_style.colors[imn.Col.PinHovered] = imn_col(v.x, v.y, v.z, v.w)

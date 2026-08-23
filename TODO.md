@@ -89,7 +89,8 @@ spend time on them prematurely.
 - [x] `[S]` `[P1]` `[gui]` File dialog: custom ImGui window with file list,
       path navigation, open/cancel
   - [x] `[S]` `[P1]` Cancel button wired (closes or resets)
-  - [ ] `[S]` `[P1]` Open button — open selected file (stub exists, does nothing)
+  - [x] `[S]` `[P1]` Open button — opens the selected file, wiring the same
+        path as double-click via `open_database_file` (2026-08-23)
   - [x] `[S]` `[P1]` Double-click detection wired via `AllowDoubleClick` +
         `IsMouseDoubleClicked`
   - [~] `[S]` `[P1]` Double-click navigation into subdirectories
@@ -175,10 +176,11 @@ click (O(V) placement, no per-frame cost).
       `imn.EndPin`) so FK links attach to the correct column line —
       FK-endpoint pins + anchoring done in Phase 1; remaining: pins on
       every column row
-- [ ] `[S]` `[P2]` `[gui]` Visual direction: referenced table column =
-      output pin (right side), referencing table column = input pin (left) —
-      direction done for FK endpoints in Phase 1; remaining: apply to all
-      column rows
+- [ ] `[S]` `[P2]` `[gui]` Pin side: derived from the linked tables' relative
+      position in the current layout (node on the left = output pin / right
+      edge, node on the right = input pin / left edge), never the FK's
+      one/many semantics — done for FK endpoints (2026-08-23); remaining:
+      apply to all column rows
 - [x] `[S]` `[P2]` `[gui]` Highlight active seed table in the diagram — seed
       node gets the accent-coloured title bar (reads theme accent from the
       ImNodes Link colour, no extra state)
@@ -206,8 +208,7 @@ click (O(V) placement, no per-frame cost).
       layered (Sugiyama-style) layout: tables ranked by hop distance from the
       seed (relaxed by FK direction so a same-rank FK never loops sideways),
       ranks stack left-to-right (matches ImNodes' fixed left-input/
-      right-output link curve shape), ordered within each rank by barycenter
-      + transpose crossing-reduction sweeps, then packed using each table's
+      right-output link curve shape), ordered within each rank by barycenter + transpose crossing-reduction sweeps, then packed using each table's
       real ImNodes-rendered size (`node_size`, mirrored back every frame)
       so nothing overlaps. `test/repro_layout.odin` validates it standalone
       at scale (no overlapping tables, crossing/link-node-overlap metrics,

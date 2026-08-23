@@ -1625,20 +1625,38 @@ show_node_editor :: proc(app_state: ^AppState) {
 			visible[table_idx] = true
 		}
 
-		// FK endpoint columns become pins so links anchor to the right row.
-		// The shapes double as cardinality symbols: the referencing column
-		// (input pin, left) is the "many" side — one referenced row can be
-		// pointed at by many rows — a filled triangle; the referenced column
-		// (output pin, right) is the "one" side — a filled circle. Distinct
-		// shapes keep every link's two ends readable even when several links
-		// share the same column.
+		// Pin side follows the linked nodes' relative x in the current layout,
+		// never the FK's one/many semantics: the left node's pin is an output
+		// (its right edge faces the link), the right node's pin an input (its
+		// left edge). The rank relaxation usually puts the many side right of
+		// the one side, but it deliberately exempts the seed's own FKs and
+		// unreachable tables pile up on the far side — on those links the
+		// static one/many mapping put both pin ends on the wrong edges. When
+		// several FKs share a column, the first FK to visit it wins. A link to
+		// an off-canvas table has no position to compare, so the legacy
+		// one/many side is kept (the dangling pin stays on a sensible edge).
 		pin_is_input := make(map[GlobalColumnIndex]bool, context.temp_allocator)
 		for fk in schema.foreign_keys {
-			if !(fk.from in pin_is_input) {
-				pin_is_input[fk.from] = true
+			from_table := find_table_by_column(schema.tables[:], fk.from)
+			to_table := find_table_by_column(schema.tables[:], fk.to)
+			if from_table < 0 || to_table < 0 {
+				continue
 			}
-			if !(fk.to in pin_is_input) {
-				pin_is_input[fk.to] = false
+			from_visible := visible[GlobalTableIndex(u32(from_table))]
+			to_visible := visible[GlobalTableIndex(u32(to_table))]
+			if from_visible && to_visible {
+				from_x := diagram.layout[GlobalTableIndex(u32(from_table))].x
+				to_x := diagram.layout[GlobalTableIndex(u32(to_table))].x
+				if from_x <= to_x {
+					if !(fk.from in pin_is_input) {pin_is_input[fk.from] = false}
+					if !(fk.to in pin_is_input) {pin_is_input[fk.to] = true}
+				} else {
+					if !(fk.from in pin_is_input) {pin_is_input[fk.from] = true}
+					if !(fk.to in pin_is_input) {pin_is_input[fk.to] = false}
+				}
+			} else {
+				if from_visible && !(fk.from in pin_is_input) {pin_is_input[fk.from] = true}
+				if to_visible && !(fk.to in pin_is_input) {pin_is_input[fk.to] = false}
 			}
 		}
 
@@ -1731,6 +1749,7 @@ show_node_editor :: proc(app_state: ^AppState) {
 		draw_list := ig.GetWindowDrawList()
 		ig.DrawList_ChannelsSetCurrent(draw_list, 0)
 		link_color := imn.GetStyle().colors[imn.Col.Link]
+		link_hover_color := imn.GetStyle().colors[imn.Col.LinkHovered]
 		link_thickness := imn.GetStyle().link_thickness
 		for table_idx in diagram.visible_tables {
 			table := schema.tables[table_idx]
@@ -1753,6 +1772,7 @@ show_node_editor :: proc(app_state: ^AppState) {
 					pin_pos[fk.from],
 					many_optional,
 					link_color,
+					link_hover_color,
 					link_thickness,
 				)
 			}

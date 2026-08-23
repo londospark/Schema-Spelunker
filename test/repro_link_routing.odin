@@ -123,6 +123,15 @@ find_obstacles :: proc(
 	return obstacles
 }
 
+LINK_STAGGER_RANGE :: 6.0
+
+link_stagger :: proc(p0, p3: Vec2) -> f32 {
+	v := p0.x * 12.9898 + p0.y * 78.233 + p3.x * 37.719 + p3.y * 94.673
+	s := math.sin(v) * 43758.5453
+	frac := s - math.floor(s)
+	return (frac - 0.5) * 2 * LINK_STAGGER_RANGE
+}
+
 route_link_waypoints :: proc(
 	p0, p3: Vec2,
 	node_rects: map[GlobalTableIndex]Rect2,
@@ -133,6 +142,7 @@ route_link_waypoints :: proc(
 	if len(obstacles) == 0 {
 		return waypoints
 	}
+	stagger := link_stagger(p0, p3)
 
 	count := min(len(obstacles), LINK_ROUTE_MAX_OBSTACLES)
 	for i in 0 ..< count {
@@ -149,6 +159,7 @@ route_link_waypoints :: proc(
 		if abs(below_y - path_y) < abs(above_y - path_y) {
 			bump_y = below_y
 		}
+		bump_y += stagger
 
 		append(&waypoints, Vec2{obstacle.rect.min.x - LINK_ROUTE_MARGIN, bump_y})
 		append(&waypoints, Vec2{obstacle.rect.max.x + LINK_ROUTE_MARGIN, bump_y})

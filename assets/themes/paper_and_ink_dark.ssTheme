@@ -36,6 +36,10 @@ subtle = "#40403A"
 background = "#282823"
 line = "#4C4C47"
 
+[diagram_links]
+colour = "#3D7BC7"
+thickness = 2.0
+
 [accent]
 colour = "#2C5796"
 

@@ -85,6 +85,7 @@ RoutingSamples :: [ROUTING_SAMPLE_COUNT]ig.Vec2
 
 LINK_ROUTE_MARGIN :: 14.0
 LINK_ROUTE_MAX_OBSTACLES :: 4
+LINK_STAGGER_RANGE :: 6.0
 
 Obstacle :: struct {
 	rect:     Rect2,
@@ -131,16 +132,35 @@ find_obstacles :: proc(
 	return obstacles
 }
 
+// A small, cheap, deterministic pseudo-random value from two points (the
+// classic "fract(sin(dot(...)) * big_number)" hash) — same link endpoints
+// always give the same stagger, so it doesn't jitter between frames, but
+// two different links get two different values. Used to keep two links
+// that both detour around the same obstacle from landing on the exact same
+// waypoint coordinates: without this, they'd overlap completely through the
+// whole detour and only visibly separate again once they reach their own
+// distinct endpoints — reading as if they "branch off each other" partway
+// along instead of at the pin, which is the wrong impression for two
+// unrelated relationships that just happen to cross the same table.
+link_stagger :: proc(p0, p3: ig.Vec2) -> f32 {
+	v := p0.x * 12.9898 + p0.y * 78.233 + p3.x * 37.719 + p3.y * 94.673
+	s := math.sin(v) * 43758.5453
+	frac := s - math.floor(s)
+	return (frac - 0.5) * 2 * LINK_STAGGER_RANGE
+}
+
 // Greedy single-pass detour: for each obstacle the direct path crosses,
 // left to right, adds a waypoint pair that bumps the path above or below
 // it — whichever side is closer to the path's height at that point — with
-// a small clearance margin. Doesn't re-check the detoured path against
-// further obstacles, so a dense cluster of overlapping tables can still
-// leave a residual close call; that's a deliberate simplicity tradeoff, and
-// still a large improvement over drawing straight through every one of
-// them. Obstacle count is capped since a table with dozens of crossed
-// neighbours (a heavily-shared hub's neighbourhood) would otherwise produce
-// a waypoint list long enough to zigzag rather than clarify.
+// a small clearance margin, then nudges that bump by this link's stagger
+// (comfortably smaller than the margin, so clearance is never actually
+// lost). Doesn't re-check the detoured path against further obstacles, so a
+// dense cluster of overlapping tables can still leave a residual close
+// call; that's a deliberate simplicity tradeoff, and still a large
+// improvement over drawing straight through every one of them. Obstacle
+// count is capped since a table with dozens of crossed neighbours (a
+// heavily-shared hub's neighbourhood) would otherwise produce a waypoint
+// list long enough to zigzag rather than clarify.
 route_link_waypoints :: proc(
 	p0, p3: ig.Vec2,
 	node_rects: map[GlobalTableIndex]Rect2,
@@ -151,6 +171,7 @@ route_link_waypoints :: proc(
 	if len(obstacles) == 0 {
 		return waypoints
 	}
+	stagger := link_stagger(p0, p3)
 
 	count := min(len(obstacles), LINK_ROUTE_MAX_OBSTACLES)
 	for i in 0 ..< count {
@@ -167,6 +188,7 @@ route_link_waypoints :: proc(
 		if abs(below_y - path_y) < abs(above_y - path_y) {
 			bump_y = below_y
 		}
+		bump_y += stagger
 
 		append(&waypoints, ig.Vec2{obstacle.rect.min.x - LINK_ROUTE_MARGIN, bump_y})
 		append(&waypoints, ig.Vec2{obstacle.rect.max.x + LINK_ROUTE_MARGIN, bump_y})
@@ -199,67 +221,150 @@ sample_chained_curve :: proc(points: []ig.Vec2, out: ^[dynamic]ig.Vec2) {
 	}
 }
 
-CARDINALITY_FOOT_LEN :: 20.0
-CARDINALITY_FOOT_SPREAD :: 9.0
-CARDINALITY_CIRCLE_R :: 5.0
-CARDINALITY_TICK_DIST :: 16.0
-CARDINALITY_TICK_LEN :: 9.0
+vec2_sub :: proc(a, b: ig.Vec2) -> ig.Vec2 {
+	return ig.Vec2{a.x - b.x, a.y - b.y}
+}
 
-// Crow's-foot-notation cardinality glyphs at each end of a link: a crow's
-// foot at the referencing/"many" pin (plus a hollow circle if that column
-// is nullable, marking the relationship zero-or-many rather than
-// one-or-many), and a single tick at the referenced/"one" pin (a FK always
-// points at exactly one parent row). Input pins always sit on a node's left
-// edge and open further left; Output pins always sit on the right edge and
-// open further right (see BeginInputAttribute/BeginOutputAttribute call
-// sites in main.odin) — the "many" end is always the Input pin and the
-// "one" end always Output in this app's FK convention, so the outward
-// directions are fixed constants rather than a parameter.
+vec2_add :: proc(a, b: ig.Vec2) -> ig.Vec2 {
+	return ig.Vec2{a.x + b.x, a.y + b.y}
+}
+
+vec2_scale :: proc(a: ig.Vec2, s: f32) -> ig.Vec2 {
+	return ig.Vec2{a.x * s, a.y * s}
+}
+
+vec2_length :: proc(a: ig.Vec2) -> f32 {
+	return math.sqrt(a.x * a.x + a.y * a.y)
+}
+
+// Unit vector, defaulting to pointing along +x for a (near-)zero input
+// rather than dividing by ~0 — only reachable if two consecutive path
+// samples coincide exactly, which doesn't happen in practice here.
+vec2_normalize :: proc(a: ig.Vec2) -> ig.Vec2 {
+	length := vec2_length(a)
+	if length < 1e-4 {
+		return ig.Vec2{1, 0}
+	}
+	return ig.Vec2{a.x / length, a.y / length}
+}
+
+// perpendicular (rotate 90 degrees)
+vec2_perp :: proc(a: ig.Vec2) -> ig.Vec2 {
+	return ig.Vec2{-a.y, a.x}
+}
+
+// Walks along `path` from one end, accumulating segment length, and returns
+// the point exactly `distance` along it — interpolating within whichever
+// segment crosses that distance, or clamping to the far end if the path is
+// shorter than `distance` (only possible for a very short link, and still a
+// reasonable fallback: the anchor just ends up at the opposite pin).
+// `from_start` true walks from path[0]; false walks backward from the last
+// point. Used to find a real point on the *actual* rendered curve near a
+// pin, rather than assuming a fixed direction, so a cardinality glyph's
+// orientation always matches the curve it's attached to — including when a
+// routed link approaches its pin at a steep angle instead of head-on.
+point_at_arc_distance :: proc(path: []ig.Vec2, from_start: bool, distance: f32) -> ig.Vec2 {
+	n := len(path)
+	remaining := distance
+	if from_start {
+		for i in 0 ..< n - 1 {
+			a, b := path[i], path[i + 1]
+			seg_len := vec2_length(vec2_sub(b, a))
+			if seg_len >= remaining {
+				return vec2_add(a, vec2_scale(vec2_sub(b, a), remaining / seg_len))
+			}
+			remaining -= seg_len
+		}
+		return path[n - 1]
+	}
+	for i := n - 1; i > 0; i -= 1 {
+		a, b := path[i], path[i - 1]
+		seg_len := vec2_length(vec2_sub(b, a))
+		if seg_len >= remaining {
+			return vec2_add(a, vec2_scale(vec2_sub(b, a), remaining / seg_len))
+		}
+		remaining -= seg_len
+	}
+	return path[0]
+}
+
+CARDINALITY_FOOT_LEN :: 26.0
+CARDINALITY_FOOT_SPREAD :: 12.0
+CARDINALITY_CIRCLE_R :: 6.0
+CARDINALITY_TICK_DIST :: 20.0
+CARDINALITY_TICK_LEN :: 11.0
+
+// Crow's-foot-notation cardinality glyphs at each end of a link's already
+// (fully sampled) path: a crow's foot at the referencing/"many" pin (plus a
+// hollow circle if that column is nullable, marking the relationship
+// zero-or-many rather than one-or-many), and a single tick at the
+// referenced/"one" pin (a FK always points at exactly one parent row).
+// Orientation is derived from the actual curve near each pin (see
+// point_at_arc_distance) rather than assumed horizontal, so the glyph
+// lines up with the curve even where it enters at a steep angle — e.g. a
+// routed link bumping up and over an obstacle right before it reaches its
+// destination pin.
 draw_cardinality_glyphs :: proc(
 	draw_list: ^ig.DrawList,
-	many_pos: ig.Vec2,
-	one_pos: ig.Vec2,
+	path: []ig.Vec2,
 	many_optional: bool,
 	color: u32,
 	thickness: f32,
 ) {
-	many_outward: f32 = -1
-	one_outward: f32 = 1
+	many_pos := path[len(path) - 1]
+	one_pos := path[0]
 
-	far := ig.Vec2{many_pos.x + many_outward * CARDINALITY_FOOT_LEN, many_pos.y}
+	far := point_at_arc_distance(path, false, CARDINALITY_FOOT_LEN)
+	outward := vec2_normalize(vec2_sub(far, many_pos))
+	perp := vec2_scale(vec2_perp(outward), CARDINALITY_FOOT_SPREAD)
+
 	ig.DrawList_AddLine(draw_list, far, many_pos, color, thickness)
-	ig.DrawList_AddLine(
-		draw_list,
-		far,
-		ig.Vec2{many_pos.x, many_pos.y + CARDINALITY_FOOT_SPREAD},
-		color,
-		thickness,
-	)
-	ig.DrawList_AddLine(
-		draw_list,
-		far,
-		ig.Vec2{many_pos.x, many_pos.y - CARDINALITY_FOOT_SPREAD},
-		color,
-		thickness,
-	)
+	ig.DrawList_AddLine(draw_list, far, vec2_add(many_pos, perp), color, thickness)
+	ig.DrawList_AddLine(draw_list, far, vec2_sub(many_pos, perp), color, thickness)
 	if many_optional {
-		centre := ig.Vec2{far.x + many_outward * (CARDINALITY_CIRCLE_R + 2.0), far.y}
+		centre := vec2_add(far, vec2_scale(outward, CARDINALITY_CIRCLE_R + 2.0))
 		ig.DrawList_AddCircle(draw_list, centre, CARDINALITY_CIRCLE_R, color, 0, thickness)
 	}
 
-	tick_centre := ig.Vec2{one_pos.x + one_outward * CARDINALITY_TICK_DIST, one_pos.y}
+	near := point_at_arc_distance(path, true, CARDINALITY_TICK_DIST)
+	tick_perp := vec2_scale(vec2_perp(vec2_normalize(vec2_sub(near, one_pos))), CARDINALITY_TICK_LEN)
 	ig.DrawList_AddLine(
 		draw_list,
-		ig.Vec2{tick_centre.x, tick_centre.y + CARDINALITY_TICK_LEN},
-		ig.Vec2{tick_centre.x, tick_centre.y - CARDINALITY_TICK_LEN},
+		vec2_add(near, tick_perp),
+		vec2_sub(near, tick_perp),
 		color,
 		thickness,
 	)
 }
 
+LINK_HOVER_DISTANCE :: 6.0
+LINK_HOVER_THICKNESS_BONUS :: 1.5
+
+// Shortest distance from `p` to the segment a-b.
+point_segment_distance :: proc(p, a, b: ig.Vec2) -> f32 {
+	ab := vec2_sub(b, a)
+	len_sq := ab.x * ab.x + ab.y * ab.y
+	if len_sq < 1e-8 {
+		return vec2_length(vec2_sub(p, a))
+	}
+	t := clamp(((p.x - a.x) * ab.x + (p.y - a.y) * ab.y) / len_sq, 0, 1)
+	closest := vec2_add(a, vec2_scale(ab, t))
+	return vec2_length(vec2_sub(p, closest))
+}
+
+path_hovered :: proc(path: []ig.Vec2, mouse: ig.Vec2) -> bool {
+	for i in 0 ..< len(path) - 1 {
+		if point_segment_distance(mouse, path[i], path[i + 1]) <= LINK_HOVER_DISTANCE {
+			return true
+		}
+	}
+	return false
+}
+
 // Draws one FK link: a curve from the referenced ("one") pin to the
 // referencing ("many") pin, routed around any other visible table it would
-// otherwise cross, plus cardinality glyphs at each end. Call between
+// otherwise cross, plus cardinality glyphs at each end, thickening and
+// brightening the whole thing when the mouse is over it. Call between
 // imn.BeginNodeEditor() and imn.EndNodeEditor(), with the drawlist's
 // current channel already set to ImNodes' link background channel (channel
 // 0 — see DrawList_ChannelsSetCurrent at the call site in main.odin) so
@@ -271,6 +376,7 @@ draw_fk_link :: proc(
 	one_pos, many_pos: ig.Vec2,
 	many_optional: bool,
 	color: u32,
+	hover_color: u32,
 	thickness: f32,
 ) {
 	waypoints := route_link_waypoints(one_pos, many_pos, node_rects, one_table, many_table)
@@ -292,7 +398,14 @@ draw_fk_link :: proc(
 		context.temp_allocator,
 	)
 	sample_chained_curve(control_points[:], &path)
-	ig.DrawList_AddPolyline(draw_list, &path[0], i32(len(path)), color, thickness)
 
-	draw_cardinality_glyphs(draw_list, many_pos, one_pos, many_optional, color, thickness)
+	draw_color := color
+	draw_thickness := thickness
+	if path_hovered(path[:], ig.GetMousePos()) {
+		draw_color = hover_color
+		draw_thickness = thickness + LINK_HOVER_THICKNESS_BONUS
+	}
+
+	ig.DrawList_AddPolyline(draw_list, &path[0], i32(len(path)), draw_color, draw_thickness)
+	draw_cardinality_glyphs(draw_list, path[:], many_optional, draw_color, draw_thickness)
 }
