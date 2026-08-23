@@ -2,9 +2,9 @@ package main
 
 import c "core:c"
 import "core:fmt"
-import "core:math"
 import "core:mem"
 import "core:os"
+import "core:sort"
 import "core:strings"
 import "core:time"
 import gl "vendor/gl"
@@ -91,6 +91,22 @@ DiagramState :: struct {
 	// only changes when the view (seed or visible set) changes.
 	layout:                 map[GlobalTableIndex]ig.Vec2,
 
+	// Real rendered size (grid px) of every table ImNodes has drawn at least
+	// once, mirrored back every frame the same way `layout` is. A table with
+	// no entry yet falls back to estimate_node_size until it's first drawn.
+	node_size:              map[GlobalTableIndex]ig.Vec2,
+
+	// Rank -> top-to-bottom table order from the last full layout pass.
+	// pack_layer_positions reuses this to repack coordinates (e.g. once real
+	// sizes are known) without redoing BFS ranking or crossing reduction.
+	layer_order:            [dynamic][dynamic]GlobalTableIndex,
+
+	// Set by layout_visible_tables when the pass placed any table using an
+	// estimated size (i.e. a table ImNodes hasn't drawn before). Consumed one
+	// frame later, once that table's real size has been mirrored into
+	// node_size, to repack positions precisely.
+	pending_size_refine:    bool,
+
 	// Set when the visible set was re-laid-out: the next editor frame pans so
 	// the whole diagram sits at the centre of the viewport.
 	pending_focus_view:     bool,
@@ -164,10 +180,25 @@ convert_odin_string_to_begin_and_end_cstrings :: proc(
 
 // -1 is the sentinel value, having a bool as well provides no real benefit at the moment, that is something that might change
 // if we want to use or_* at the call sites.
+//
+// Binary search: load_schema appends tables in ascending column order, so
+// from_column/to_column ranges are sorted and non-overlapping. This is on
+// the hot path for every FK lookup (linked_tables, link drawing) — layered
+// layout on a large schema calls it often enough that a linear scan turns
+// O(tables) per call into O(tables) per FK, which is the difference between
+// a layout pass finishing instantly and taking seconds on a few thousand
+// tables.
 find_table_by_column :: proc(tables: []Table, column: GlobalColumnIndex) -> int {
-	for table, i in tables {
-		if table.from_column <= column && column < table.to_column {
-			return i
+	lo, hi := 0, len(tables) - 1
+	for lo <= hi {
+		mid := lo + (hi - lo) / 2
+		t := tables[mid]
+		if column < t.from_column {
+			hi = mid - 1
+		} else if column >= t.to_column {
+			lo = mid + 1
+		} else {
+			return mid
 		}
 	}
 	return -1
@@ -248,17 +279,474 @@ show_all_tables :: proc(schema: ^Schema, state: ^DiagramState) {
 	refresh_diagram(schema, state)
 }
 
-// Radius of the inner ring (grid px); outer rings scale up when a ring holds
-// many tables so their arc distance stays readable.
-RING_SPACING :: 340.0
+// Layered (Sugiyama-style) layout tuning, all in grid px. Ranks — one per hop
+// distance from the seed — stack left-to-right; within a rank, tables run
+// top-to-bottom and wrap into a new sub-column once the rank grows taller
+// than MAX_RANK_HEIGHT, so a flat schema with hundreds of tables in one rank
+// doesn't become a single absurdly tall column. Real per-table sizes (from
+// node_size_for) drive every spacing decision, so packed tables never
+// overlap.
+//
+// Left-to-right, not top-to-bottom: ImNodes always draws an input pin on a
+// node's left edge and an output pin on its right, and its link curve is a
+// horizontal S — control points offset purely along x by a quarter of the
+// pin-to-pin distance (see GetCubicBezier in imnodes.cpp), regardless of how
+// much of that distance is actually vertical. Laid out top-to-bottom, two
+// pins mostly separated by a big vertical rank gutter still bulge sideways
+// by a quarter of that (mostly-vertical) distance, which is enough to swing
+// into a neighbouring table in the same rank. Ranking left-to-right instead
+// makes the pin-to-pin distance mostly horizontal, so that same bulge lands
+// inside the gutter it was already given rather than sideways into a
+// sibling — and it matches the pins' fixed sides: the rank relaxation pass
+// in compute_layer_order keeps a referencing ("many"/input) table at a rank
+// at or after the table it references ("one"/output), so a link's output
+// pin is (almost always) at or left of its input pin, which is exactly the
+// direction ImNodes' left-input/right-output curve shape wants.
+LAYER_GUTTER_X :: 140.0
+SUBCOL_GUTTER_X :: 40.0
+NODE_GAP_Y :: 50.0
+MAX_RANK_HEIGHT :: 1400.0
 
-// Radial layout: the seed table sits at the origin and every other visible
-// table is placed on the ring matching its hop distance from the seed (one FK
-// link = one hop, either direction). Children are ordered around their parent
-// so links cross less. Runs on every view change — centring the seed is the
-// point of the layout — but is skipped when the seed and visible set are
-// unchanged, so re-clicking the active table (or Show All twice) costs
-// nothing and leaves drags alone.
+// Crossing-reduction (barycenter) and straightening sweep counts. Almost
+// every FK link connects same-rank or adjacent-rank tables (the rank
+// relaxation pass below only occasionally pushes one more than one rank
+// away), so a handful of sweeps is enough to converge — this is the same
+// cheap heuristic Graphviz's `dot` and dagre use for layered graphs.
+ORDER_SWEEPS :: 4
+STRAIGHTEN_SWEEPS :: 3
+
+// Iteration cap for the rank relaxation pass in compute_layer_order. A real
+// schema's FK dependency chain converges in a handful of passes; this only
+// guards against a pathological FK cycle spinning forever.
+RANK_RELAX_MAX_ITER :: 64
+
+// Fallback node size for a table ImNodes hasn't drawn yet, so the very first
+// layout pass has a sane size to pack against before the real size (mirrored
+// back after that first frame) triggers a precise repack. Rough character-
+// width heuristic — it only needs to be in the right ballpark for one frame.
+EST_CHAR_WIDTH :: 7.0
+EST_WIDTH_PAD :: 36.0
+EST_MIN_WIDTH :: 140.0
+EST_HEADER_HEIGHT :: 34.0
+EST_ROW_HEIGHT :: 20.0
+
+estimate_node_size :: proc(schema: ^Schema, table_idx: GlobalTableIndex) -> ig.Vec2 {
+	table := schema.tables[table_idx]
+	max_chars := len(table.name)
+	for column in schema.columns[table.from_column:table.to_column] {
+		if len(column.name) > max_chars {
+			max_chars = len(column.name)
+		}
+	}
+	width := max(EST_MIN_WIDTH, f32(max_chars) * EST_CHAR_WIDTH + EST_WIDTH_PAD)
+	column_count := max(1, int(table.to_column) - int(table.from_column))
+	height := EST_HEADER_HEIGHT + f32(column_count) * EST_ROW_HEIGHT
+	return ig.Vec2{width, height}
+}
+
+// Best known size for a table: the real ImNodes-rendered size once it has
+// been drawn at least once this session, otherwise an estimate.
+node_size_for :: proc(
+	schema: ^Schema,
+	state: ^DiagramState,
+	table_idx: GlobalTableIndex,
+) -> ig.Vec2 {
+	if size, cached := state.node_size[table_idx]; cached {
+		return size
+	}
+	return estimate_node_size(schema, table_idx)
+}
+
+delete_layer_order :: proc(layers: [dynamic][dynamic]GlobalTableIndex) {
+	for layer in layers {
+		delete(layer)
+	}
+	delete(layers)
+}
+
+RankEntry :: struct {
+	table: GlobalTableIndex,
+	key:   f32,
+}
+
+compare_rank_entries :: proc(a, b: RankEntry) -> int {
+	if a.key < b.key {
+		return -1
+	}
+	if a.key > b.key {
+		return 1
+	}
+	return 0
+}
+
+// Reorders one rank in place to minimise edge crossings against ref_rank,
+// using the classic barycenter heuristic: each table moves toward the
+// average rank-order position of its neighbours in ref_rank. A table with no
+// neighbour there keeps its current slot (key = its own index), so isolated
+// tables don't get shuffled arbitrarily. merge_sort_proc is stable, so ties
+// (equal barycenter) keep their previous relative order instead of
+// oscillating between sweeps.
+reorder_rank_by_neighbors :: proc(
+	layers: [dynamic][dynamic]GlobalTableIndex,
+	neighbors: map[GlobalTableIndex][dynamic]GlobalTableIndex,
+	rank_of: map[GlobalTableIndex]u32,
+	pos_in_rank: ^map[GlobalTableIndex]int,
+	rank: u32,
+	ref_rank: u32,
+) {
+	row := layers[rank]
+	if len(row) <= 1 {
+		return
+	}
+
+	entries := make([dynamic]RankEntry, 0, len(row), context.temp_allocator)
+	for t, i in row {
+		linked := neighbors[t]
+		sum: f32 = 0
+		count: f32 = 0
+		for n in linked {
+			if rank_of[n] == ref_rank {
+				sum += f32(pos_in_rank[n])
+				count += 1
+			}
+		}
+		key := f32(i)
+		if count > 0 {
+			key = sum / count
+		}
+		append(&entries, RankEntry{table = t, key = key})
+	}
+	sort.merge_sort_proc(entries[:], compare_rank_entries)
+	for e, i in entries {
+		row[i] = e.table
+		pos_in_rank[e.table] = i
+	}
+}
+
+// Pulls a single-subcolumn rank's tables vertically toward the average y of
+// their neighbours in ref_rank, then resolves top-to-bottom so minimum
+// spacing is never violated — order is untouched, so this can only reduce
+// edge slant, never introduce a new crossing or an overlap. Wrapped ranks
+// (more than one sub-column) are left at their packed position: straightening
+// a wrapped grid is a different problem and not worth the complexity here.
+straighten_rank :: proc(
+	schema: ^Schema,
+	state: ^DiagramState,
+	layers: [dynamic][dynamic]GlobalTableIndex,
+	neighbors: map[GlobalTableIndex][dynamic]GlobalTableIndex,
+	rank_of: map[GlobalTableIndex]u32,
+	rank: u32,
+	ref_rank: u32,
+) {
+	col := layers[rank]
+	if len(col) <= 1 {
+		return
+	}
+	if state.layout[col[0]].x != state.layout[col[len(col) - 1]].x {
+		return
+	}
+
+	prev_bottom: f32
+	for t, i in col {
+		linked := neighbors[t]
+		sum: f32 = 0
+		count: f32 = 0
+		for n in linked {
+			if rank_of[n] == ref_rank {
+				sum += state.layout[n].y
+				count += 1
+			}
+		}
+
+		pos := state.layout[t]
+		size := node_size_for(schema, state, t)
+		desired := pos.y
+		if count > 0 {
+			desired = sum / count
+		}
+		if i > 0 {
+			// Positions are top-left (ImNodes' convention — see
+			// SetNodeGridSpacePos), so the minimum next y is the previous
+			// node's bottom edge plus the gap, no half-heights involved.
+			min_y := prev_bottom + NODE_GAP_Y
+			if min_y > desired {
+				desired = min_y
+			}
+		}
+		pos.y = desired
+		state.layout[t] = pos
+		prev_bottom = pos.y + size.y
+	}
+}
+
+// Packs every rank's tables into non-overlapping grid-space positions using
+// each table's best known size, wrapping a rank into new sub-columns once it
+// grows past MAX_RANK_HEIGHT. Runs standalone (no BFS, no reordering) so it
+// can cheaply repack once real ImNodes sizes replace first-pass estimates.
+pack_layer_positions :: proc(
+	schema: ^Schema,
+	state: ^DiagramState,
+	layers: [dynamic][dynamic]GlobalTableIndex,
+) {
+	x_cursor: f32 = 0
+	for r in 0 ..< len(layers) {
+		col := layers[r]
+		if len(col) == 0 {
+			// Rank relaxation can leave a rank completely empty (a hop can
+			// jump straight from N to N+2). Still advance x_cursor — every
+			// rank index must own a distinct x, or the next non-empty rank
+			// silently reuses this one's x and collides with it.
+			x_cursor += LAYER_GUTTER_X
+			continue
+		}
+
+		sub_starts := make([dynamic]int, 0, 4, context.temp_allocator)
+		append(&sub_starts, 0)
+		y_cursor: f32 = 0
+		for t, i in col {
+			size := node_size_for(schema, state, t)
+			if i > sub_starts[len(sub_starts) - 1] && y_cursor + size.y > MAX_RANK_HEIGHT {
+				append(&sub_starts, i)
+				y_cursor = 0
+			}
+			y_cursor += size.y + NODE_GAP_Y
+		}
+		append(&sub_starts, len(col))
+
+		rank_width: f32 = 0
+		for s in 0 ..< len(sub_starts) - 1 {
+			start := sub_starts[s]
+			end := sub_starts[s + 1]
+			y: f32 = 0
+			sub_width: f32 = 0
+			for i in start ..< end {
+				t := col[i]
+				size := node_size_for(schema, state, t)
+				state.layout[t] = ig.Vec2{x_cursor + rank_width, y}
+				y += size.y + NODE_GAP_Y
+				if size.x > sub_width {
+					sub_width = size.x
+				}
+			}
+			total_height := y - NODE_GAP_Y
+			for i in start ..< end {
+				pos := state.layout[col[i]]
+				pos.y -= total_height * 0.5
+				state.layout[col[i]] = pos
+			}
+			rank_width += sub_width + SUBCOL_GUTTER_X
+		}
+		rank_width -= SUBCOL_GUTTER_X
+		x_cursor += rank_width + LAYER_GUTTER_X
+	}
+
+	// Straightening: alternate sweeps pulling each rank toward its parent
+	// rank, then toward its child rank, so parents tend to centre over their
+	// children like a conventional tree layout instead of sitting wherever
+	// the initial top-to-bottom pack put them.
+	if len(layers) < 2 {
+		return
+	}
+	visible := make(map[GlobalTableIndex]bool, context.temp_allocator)
+	for row in layers {
+		for t in row {
+			visible[t] = true
+		}
+	}
+	neighbors := make(map[GlobalTableIndex][dynamic]GlobalTableIndex, context.temp_allocator)
+	rank_of := make(map[GlobalTableIndex]u32, context.temp_allocator)
+	for r in 0 ..< len(layers) {
+		for t in layers[r] {
+			rank_of[t] = u32(r)
+			linked := linked_tables(schema, t)
+			defer delete(linked)
+			list := make([dynamic]GlobalTableIndex, 0, len(linked), context.temp_allocator)
+			for n in linked {
+				if visible[n] {
+					append(&list, n)
+				}
+			}
+			neighbors[t] = list
+		}
+	}
+
+	for _ in 0 ..< STRAIGHTEN_SWEEPS {
+		for r in 1 ..< len(layers) {
+			straighten_rank(schema, state, layers, neighbors, rank_of, u32(r), u32(r) - 1)
+		}
+		for r := len(layers) - 2; r >= 0; r -= 1 {
+			straighten_rank(schema, state, layers, neighbors, rank_of, u32(r), u32(r) + 1)
+		}
+	}
+}
+
+// Ranks every visible table by hop distance from the seed (BFS through both
+// FK directions — the same neighbourhood rule as collect_visible_tables),
+// relaxes that into a longest-path rank using FK direction (see the rank
+// relaxation pass below), then reorders each rank with a few barycenter
+// sweeps to reduce edge crossings against the ranks before and after it.
+// Returns the final top-to-bottom order per rank, allocated with the default
+// allocator since the caller keeps it around for a later size-refine repack.
+compute_layer_order :: proc(
+	schema: ^Schema,
+	state: ^DiagramState,
+) -> (
+	layers: [dynamic][dynamic]GlobalTableIndex,
+) {
+	visible := make(map[GlobalTableIndex]bool, context.temp_allocator)
+	for t in state.visible_tables {
+		visible[t] = true
+	}
+
+	hop := make(map[GlobalTableIndex]u32, context.temp_allocator)
+	queue := make([dynamic]GlobalTableIndex, context.temp_allocator)
+	append(&queue, state.seed_table)
+	hop[state.seed_table] = 0
+	for head := 0; head < len(queue); head += 1 {
+		current := queue[head]
+		current_hop := hop[current]
+		linked := linked_tables(schema, current)
+		for neighbor in linked {
+			if !visible[neighbor] {
+				continue
+			}
+			if neighbor in hop {
+				continue
+			}
+			hop[neighbor] = current_hop + 1
+			append(&queue, neighbor)
+		}
+		delete(linked)
+	}
+
+	// Same-rank FK edges (e.g. two direct children of the seed that also
+	// reference each other) would otherwise force that link to loop
+	// sideways across the row, cutting through whatever sits between them.
+	// Relax hop into a longest-path rank using the FK's actual direction:
+	// the referencing ("many") table always ends up at least one rank
+	// below the table it references, turning a same-rank link into a
+	// normal top-to-bottom one. The iteration cap bounds the cost on a
+	// pathological FK cycle; real schemas converge in a handful of passes.
+	for _ in 0 ..< RANK_RELAX_MAX_ITER {
+		changed := false
+		for fk in schema.foreign_keys {
+			from_i := find_table_by_column(schema.tables[:], fk.from)
+			to_i := find_table_by_column(schema.tables[:], fk.to)
+			if from_i < 0 || to_i < 0 {
+				continue
+			}
+			from_t := GlobalTableIndex(u32(from_i))
+			to_t := GlobalTableIndex(u32(to_i))
+			if from_t == state.seed_table || !visible[from_t] || !visible[to_t] {
+				continue
+			}
+			from_hop, from_ok := hop[from_t]
+			to_hop, to_ok := hop[to_t]
+			if !from_ok || !to_ok {
+				continue
+			}
+			if from_hop <= to_hop {
+				hop[from_t] = to_hop + 1
+				changed = true
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+
+	max_hop: u32 = 0
+	for t in state.visible_tables {
+		if h := hop[t]; h > max_hop {
+			max_hop = h
+		}
+	}
+	outer_rank := max_hop + 1 // tables the seed can't reach
+
+	work := make([dynamic][dynamic]GlobalTableIndex, context.temp_allocator)
+	for _ in 0 ..= int(outer_rank) {
+		append(&work, make([dynamic]GlobalTableIndex, context.temp_allocator))
+	}
+	for t in state.visible_tables {
+		h, reached := hop[t]
+		if !reached {
+			h = outer_rank
+		}
+		append(&work[h], t)
+	}
+
+	// Initial order within each rank is just bucket (visible_tables) order —
+	// rank relaxation above means a table's rank no longer always matches
+	// its BFS-tree parent's rank, so grouping by BFS parent here could put a
+	// table in the wrong rank's order entirely. The barycenter sweeps below
+	// converge to a good order from any starting point, so this heuristic
+	// isn't needed for correctness or for a reasonable result.
+	neighbors := make(map[GlobalTableIndex][dynamic]GlobalTableIndex, context.temp_allocator)
+	rank_of := make(map[GlobalTableIndex]u32, context.temp_allocator)
+	pos_in_rank := make(map[GlobalTableIndex]int, context.temp_allocator)
+	for r in 0 ..< len(work) {
+		for t, i in work[r] {
+			rank_of[t] = u32(r)
+			pos_in_rank[t] = i
+			linked := linked_tables(schema, t)
+			defer delete(linked)
+			list := make([dynamic]GlobalTableIndex, 0, len(linked), context.temp_allocator)
+			for n in linked {
+				if visible[n] {
+					append(&list, n)
+				}
+			}
+			neighbors[t] = list
+		}
+	}
+
+	for sweep in 0 ..< ORDER_SWEEPS {
+		if sweep % 2 == 0 {
+			for r in 1 ..= int(outer_rank) {
+				reorder_rank_by_neighbors(
+					work,
+					neighbors,
+					rank_of,
+					&pos_in_rank,
+					u32(r),
+					u32(r) - 1,
+				)
+			}
+		} else {
+			for r := int(outer_rank) - 1; r >= 0; r -= 1 {
+				reorder_rank_by_neighbors(
+					work,
+					neighbors,
+					rank_of,
+					&pos_in_rank,
+					u32(r),
+					u32(r) + 1,
+				)
+			}
+		}
+	}
+
+	layers = make([dynamic][dynamic]GlobalTableIndex, len(work))
+	for r in 0 ..< len(work) {
+		row := make([dynamic]GlobalTableIndex, len(work[r]))
+		copy(row[:], work[r][:])
+		layers[r] = row
+	}
+	return
+}
+
+// Layered layout: every visible table is ranked by hop distance from the
+// seed (one FK link = one hop, either direction, then relaxed by FK
+// direction — see compute_layer_order) and ranks stack left-to-right, which
+// is the orientation ImNodes' link curves want (see the tuning comment
+// above LAYER_GUTTER_X). Within a rank, tables are ordered to minimise edge
+// crossings against the ranks before and after, then packed top-to-bottom
+// using real table sizes so nothing overlaps and FK links have a clear
+// gutter to run through between ranks instead of across a table body. Runs
+// on every view change — centring the seed's neighbourhood is the point —
+// but is skipped when the seed and visible set are unchanged, so
+// re-clicking the active table (or Show All twice) costs nothing and leaves
+// drags alone.
 layout_visible_tables :: proc(schema: ^Schema, state: ^DiagramState) -> (relaid_out: bool) {
 	visible_count := len(state.visible_tables)
 	if visible_count == 0 {
@@ -278,109 +766,16 @@ layout_visible_tables :: proc(schema: ^Schema, state: ^DiagramState) -> (relaid_
 	state.layout_key.seed = state.seed_table
 	state.layout_key.visible_sum = key_sum
 
-	visible := make(map[GlobalTableIndex]bool, context.temp_allocator)
-	for t in state.visible_tables {
-		visible[t] = true
-	}
+	delete_layer_order(state.layer_order)
+	state.layer_order = compute_layer_order(schema, state)
+	pack_layer_positions(schema, state, state.layer_order)
 
-	// BFS from the seed through both link directions (the same neighbourhood
-	// rule as collect_visible_tables) to get the hop count and BFS parent of
-	// every visible table.
-	hop := make(map[GlobalTableIndex]u32, context.temp_allocator)
-	parent := make(map[GlobalTableIndex]GlobalTableIndex, context.temp_allocator)
-	children_of := make(map[GlobalTableIndex][dynamic]GlobalTableIndex, context.temp_allocator)
-	queue := make([dynamic]GlobalTableIndex, context.temp_allocator)
-	append(&queue, state.seed_table)
-	hop[state.seed_table] = 0
-	for head := 0; head < len(queue); head += 1 {
-		current := queue[head]
-		current_hop := hop[current]
-		linked := linked_tables(schema, current)
-		for neighbor in linked {
-			if !visible[neighbor] {
-				continue
-			}
-			if neighbor in hop {
-				continue
-			}
-			hop[neighbor] = current_hop + 1
-			parent[neighbor] = current
-			if children_of[current] == nil {
-				children_of[current] = make([dynamic]GlobalTableIndex, context.temp_allocator)
-			}
-			append(&children_of[current], neighbor)
-			append(&queue, neighbor)
-		}
-		delete(linked)
-	}
-
-	max_hop: u32 = 0
-	for t in state.visible_tables {
-		if h := hop[t]; h > max_hop {
-			max_hop = h
-		}
-	}
-	outer_ring := max_hop + 1 // tables the seed can't reach
-
-	// Bucket visible tables by ring (flat slice of dynamics — the map-value
-	// range workaround doesn't apply here and these range safely).
-	rings := make([dynamic][dynamic]GlobalTableIndex, context.temp_allocator)
-	for _ in 0 ..= int(outer_ring) {
-		append(&rings, make([dynamic]GlobalTableIndex, context.temp_allocator))
-	}
-	for t in state.visible_tables {
-		h := hop[t]
-		if _, reached := hop[t]; !reached {
-			h = outer_ring
-		}
-		append(&rings[h], t)
-	}
-
-	// Copy the map value before ranging over it: ranging directly over a
-	// map-stored [dynamic] whose key is missing (nil dynamic) crashes in this
-	// Odin build — reproduced standalone with the exact same data. The copy
-	// ranges safely.
-	angle := make(map[GlobalTableIndex]f32, context.temp_allocator)
-	prev_ring_ordered: [dynamic]GlobalTableIndex
-	for r in 0 ..= int(outer_ring) {
-		bucket := rings[u32(r)]
-		if len(bucket) == 0 {
-			continue
-		}
-
-		ordered: [dynamic]GlobalTableIndex
-		if r == 0 {
-			state.layout[state.seed_table] = ig.Vec2{0, 0}
-			angle[state.seed_table] = 0
-			continue
-		}
-
-		if r == 1 || u32(r) == outer_ring {
-			// No parent ordering: ring 1's only parent is the centred seed,
-			// and the outer ring holds unreachable tables with no BFS parent.
-			ordered = bucket
-		} else {
-			ordered = make([dynamic]GlobalTableIndex, context.temp_allocator)
-			for parent_t in prev_ring_ordered {
-				children := children_of[parent_t]
-				for child in children {
-					append(&ordered, child)
-				}
-			}
-		}
-
-		count := f32(len(ordered))
-		if count == 0 {
-			continue
-		}
-		radius := RING_SPACING * max(1.0, count / 6.0)
-		for t, i in ordered {
-			a := (f32(i) + 0.5) / count * 2.0 * math.PI
-			state.layout[t] = ig.Vec2{math.cos_f32(a) * radius, math.sin_f32(a) * radius}
-			angle[t] = a
-		}
-		prev_ring_ordered = ordered
-	}
+	// At least one visible table may have just been placed against an
+	// estimated size (never drawn before, so node_size has no entry yet).
+	// The estimate is only ever off for the one frame before ImNodes draws
+	// the node and reports its real size — request a repack for the frame
+	// right after that happens.
+	state.pending_size_refine = true
 	return true
 }
 
@@ -582,7 +977,7 @@ show_titlebar :: proc(app_state: ^AppState) {
 			// file in the folder is all it takes to extend the menu.
 			themes := discover_themes(context.temp_allocator)
 			for theme in themes {
-				if ig.MenuItem(cstring(raw_data(theme.name))) {
+				if ig.MenuItem(theme.name) {
 					if theme_data, theme_ok := parse_ssTheme(theme.path, context.temp_allocator);
 					   theme_ok {
 						apply_theme_to_window(app_state.window, theme_data)
@@ -905,8 +1300,11 @@ make_imgui_app :: proc() {
 					// visible set + layout.
 					delete(app_state.diagram_state.visible_tables)
 					delete(app_state.diagram_state.layout)
+					delete(app_state.diagram_state.node_size)
+					delete_layer_order(app_state.diagram_state.layer_order)
 					app_state.diagram_state = {}
 					app_state.diagram_state.layout = make(map[GlobalTableIndex]ig.Vec2)
+					app_state.diagram_state.node_size = make(map[GlobalTableIndex]ig.Vec2)
 					if len(schema.tables) > 0 {
 						app_state.diagram_state.degrees = 1
 						app_state.diagram_state.show_from_seed_table = true
@@ -1155,25 +1553,24 @@ filter_button :: proc(
 	}
 }
 
-// One Degree / Two Degrees / Show All row, shared by the Diagram window (its
-// own seed) and the schema window (the selected table) so the filter follows
-// whichever table the user is looking at. Laying out the visible set is
-// automatic — every filter change runs it.
-show_diagram_controls :: proc(app_state: ^AppState, seed: GlobalTableIndex) {
+// One Degree / Two Degrees / Show All row for the Diagram window. Laying out
+// the visible set is automatic — every filter change runs it.
+show_diagram_controls :: proc(app_state: ^AppState) {
 	schema := &app_state.schema
 	state := &app_state.diagram_state
+	seed := state.seed_table
 
-	active := state.show_from_seed_table && state.seed_table == seed
+	active := state.show_from_seed_table
 	filter_button(schema, state, seed, "One Degree", active && state.degrees == 1, 1)
 	ig.SameLine()
 	filter_button(schema, state, seed, "Two Degrees", active && state.degrees == 2, 2)
 	ig.SameLine()
-	// No schema loaded yet: no view filter is in effect, so nothing is
-	// highlighted (the zero-value state would otherwise light up Show All).
 	// Capture the flag before the click handler below can flip
 	// state.show_from_seed_table: Odin defers evaluate their arguments at scope
 	// exit, so popping with the post-click value would underflow the style
 	// colour stack.
+	// No schema loaded yet: no view filter is in effect, so nothing is
+	// highlighted (the zero-value state would otherwise light up Show All).
 	show_all_active := len(schema.tables) > 0 && !state.show_from_seed_table
 	active_button_color(show_all_active)
 	defer active_button_pop(show_all_active)
@@ -1188,7 +1585,7 @@ show_node_editor :: proc(app_state: ^AppState) {
 	if ig.Begin("Diagram") {
 		diagram := &app_state.diagram_state
 
-		show_diagram_controls(app_state, diagram.seed_table)
+		show_diagram_controls(app_state)
 
 		imn.BeginNodeEditor()
 
@@ -1315,6 +1712,25 @@ show_node_editor :: proc(app_state: ^AppState) {
 			diagram.layout[table_idx] = ig.Vec2{pos_x, pos_y}
 		}
 
+		// Mirror real rendered sizes back the same way, so node_size_for
+		// has an accurate size for every table that's ever been drawn —
+		// including on a future relayout of a different view.
+		for table_idx in diagram.visible_tables {
+			size_x, size_y: f32
+			imn.GetNodeDimensions(i32(table_idx), &size_x, &size_y)
+			diagram.node_size[table_idx] = ig.Vec2{size_x, size_y}
+		}
+
+		// This view's layout may have placed a never-before-drawn table
+		// against an estimated size; now that ImNodes has drawn it and
+		// its real size is cached above, repack once to correct any
+		// spacing that estimate got wrong, then recentre on the result.
+		if diagram.pending_size_refine {
+			diagram.pending_size_refine = false
+			pack_layer_positions(schema, diagram, diagram.layer_order)
+			diagram.pending_focus_view = true
+		}
+
 		// A click on a table retargets the seed to it; a drag is not a click.
 		// Track press → release: when the release lands inside the drag
 		// threshold of the press (which was on a node) it's a click; moving
@@ -1363,15 +1779,8 @@ show_schema_window :: proc(app_state: ^AppState) {
 	if ig.Begin(strings.clone_to_cstring(schema.database_name, context.temp_allocator)) {
 		diagram := &app_state.diagram_state
 
-		// The degree buttons act on the table selected in this list, and
-		// clicking a table retargets the diagram to it — the list and the
+		// Clicking a table retargets the diagram to it — the list and the
 		// diagram never need separately-picked seeds.
-		seed := diagram.seed_table
-		if app_state.schema_window.selected_table >= 0 {
-			seed = GlobalTableIndex(u32(app_state.schema_window.selected_table))
-		}
-		show_diagram_controls(app_state, seed)
-
 		avail := ig.GetContentRegionAvail()
 
 		is_selected := false

@@ -392,7 +392,7 @@ parse_axis_pair :: proc(s: string) -> (x, y: int, ok: bool) {
 THEMES_DIR :: "assets/themes"
 
 ThemeFileInfo :: struct {
-	name: string, // Display name from the file's `name` tag (falls back to the file stem).
+	name: cstring, // Display name from the file's `name` tag (falls back to the file stem). Null-terminated for ImGui labels.
 	path: string, // Path relative to the working directory, ready for parse_ssTheme.
 }
 
@@ -424,11 +424,14 @@ discover_themes :: proc(allocator: mem.Allocator) -> (themes: [dynamic]ThemeFile
 			name = strings.trim_suffix(file.name, ".ssTheme")
 		}
 
-		append(&themes, ThemeFileInfo{name = strings.clone(name, allocator), path = path})
+		append(
+			&themes,
+			ThemeFileInfo{name = strings.clone_to_cstring(name, allocator), path = path},
+		)
 	}
 
 	sort.quick_sort_proc(themes[:], proc(a, b: ThemeFileInfo) -> int {
-		return strings.compare(a.name, b.name)
+		return strings.compare(string(a.name), string(b.name))
 	})
 	return
 }

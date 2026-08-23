@@ -68,6 +68,11 @@ void imnGetNodeGridSpacePos(int id, float *ox, float *oy) {
   *ox = p.x;
   *oy = p.y;
 }
+void imnGetNodeDimensions(int id, float *ox, float *oy) {
+  ImVec2 d = ImNodes::GetNodeDimensions(id);
+  *ox = d.x;
+  *oy = d.y;
+}
 
 void imnEditorContextResetPanning(float x, float y) {
   ImNodes::EditorContextResetPanning(ImVec2(x, y));

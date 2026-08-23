@@ -155,6 +155,7 @@ foreign imnodeslib {
 	// Positioning
 	SetNodeGridSpacePos :: proc(node_id: i32, x: f32, y: f32) ---
 	GetNodeGridSpacePos :: proc(node_id: i32, out_x: ^f32, out_y: ^f32) ---
+	GetNodeDimensions :: proc(node_id: i32, out_x: ^f32, out_y: ^f32) ---
 
 	// Editor view (panning)
 	EditorContextResetPanning :: proc(x: f32, y: f32) ---

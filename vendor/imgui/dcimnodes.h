@@ -62,6 +62,7 @@ void imnGetSelectedLinks(int* link_ids);
 // Positioning
 void imnSetNodeGridSpacePos(int node_id, float x, float y);
 void imnGetNodeGridSpacePos(int node_id, float* out_x, float* out_y);
+void imnGetNodeDimensions(int node_id, float* out_x, float* out_y);
 
 // Styles
 void imnStyleColorsDark(void);
