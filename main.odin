@@ -969,6 +969,16 @@ make_imgui_app :: proc() {
 	}
 }
 
+// Load the database at path as the new schema; shared by the dialog's Open
+// button and double-clicking a file entry.
+open_database_file :: proc(app_state: ^AppState, path: string) {
+	delete(app_state.schema_name)
+	fmt.printfln("OPEN: %s", path)
+	app_state.schema_name = strings.clone(path)
+	app_state.schema_dirty = true
+	app_state.schema_window.show = true
+}
+
 show_file_dialog :: proc(app_state: ^AppState) -> (os_err: os.Error) {
 	ig.SetNextWindowSize(ig.Vec2{300, 500}, .Appearing)
 
@@ -1066,11 +1076,7 @@ show_file_dialog :: proc(app_state: ^AppState) -> (os_err: os.Error) {
 					ig.SameLine()
 					if ig.SelectableBoolPtr(item.name, &is_selected, {.AllowDoubleClick}) {
 						if ig.IsMouseDoubleClicked(.Left) {
-							delete(app_state.schema_name)
-							fmt.printfln("OPEN: %s", item.path)
-							app_state.schema_name = strings.clone(string(item.path))
-							app_state.schema_dirty = true
-							app_state.schema_window.show = true
+							open_database_file(app_state, string(item.path))
 						} else {
 							app_state.file_dialog.selected_file = i32(i)
 						}
@@ -1103,7 +1109,15 @@ show_file_dialog :: proc(app_state: ^AppState) -> (os_err: os.Error) {
 
 		if ig.Button("Cancel") do app_state.file_dialog.show = false
 		ig.SameLine()
-		ig.Button("Open")
+		if ig.Button("Open") {
+			if selected := app_state.file_dialog.selected_file;
+			   selected >= 0 && selected < i32(len(app_state.file_dialog.items_in_folder)) {
+				item := app_state.file_dialog.items_in_folder[selected]
+				if item.type == .File {
+					open_database_file(app_state, string(item.path))
+				}
+			}
+		}
 	}
 
 	return
@@ -1154,8 +1168,15 @@ show_diagram_controls :: proc(app_state: ^AppState, seed: GlobalTableIndex) {
 	ig.SameLine()
 	filter_button(schema, state, seed, "Two Degrees", active && state.degrees == 2, 2)
 	ig.SameLine()
-	active_button_color(!state.show_from_seed_table)
-	defer active_button_pop(!state.show_from_seed_table)
+	// No schema loaded yet: no view filter is in effect, so nothing is
+	// highlighted (the zero-value state would otherwise light up Show All).
+	// Capture the flag before the click handler below can flip
+	// state.show_from_seed_table: Odin defers evaluate their arguments at scope
+	// exit, so popping with the post-click value would underflow the style
+	// colour stack.
+	show_all_active := len(schema.tables) > 0 && !state.show_from_seed_table
+	active_button_color(show_all_active)
+	defer active_button_pop(show_all_active)
 	if ig.Button("Show All") {
 		show_all_tables(schema, state)
 	}
