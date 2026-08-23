@@ -65,6 +65,19 @@ SQLite schema browser. SDL3 + Dear ImGui + OpenGL 3.3.
   than `ColumnIndex // global index into schema.columns`. When a comment is needed,
   it should explain _why_, not _what_ or _where_.
 
+## Vendoring rules
+
+- **All application code is Odin.** New behavior — layout, rendering,
+  algorithms, glue — goes in `.odin` files, never in the vendored C/C++.
+- **Never edit vendored source** (`vendor/imgui/*.cpp`/`*.h` — ImGui, ImNodes,
+  the dcimgui/dcimnodes C wrappers — `vendor/sqlite3/`, `vendor/gl/`,
+  `vendor/sdl3_headers/`). If a capability seems to need a vendor change,
+  find (or add) an existing Odin-callable binding instead — ImGui's own
+  `DrawList_*` functions (already bound in `vendor/imgui/imgui.odin`) cover
+  most custom-drawing needs without touching C++ at all. Keeping the vendor
+  tree untouched keeps the update path (re-pulling a newer ImGui/ImNodes/
+  SQLite release) a straight drop-in rather than a rebase of local patches.
+
 ## Communication rules
 
 - **Only give code when I specifically ask for it.** Before that: discuss, plan, explain, compare options. I will say "give me the code" or "write it" when ready.

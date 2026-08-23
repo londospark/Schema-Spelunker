@@ -1642,6 +1642,25 @@ show_node_editor :: proc(app_state: ^AppState) {
 			}
 		}
 
+		// Screen-space geometry captured fresh every frame straight from what
+		// ImNodes just drew (via ImGui's own item-rect tracking, right after
+		// each node/pin is submitted) — not touching ImNodes internals, per
+		// this project's no-vendor-edits rule (see AGENTS.md). This is what
+		// makes draw_fk_link's routing track a drag or a pan for free: there's
+		// no cached position to go stale, everything below is this frame's.
+		pin_offset := imn.GetStyle().pin_offset
+		node_rects := make(map[GlobalTableIndex]Rect2, context.temp_allocator)
+		pin_row_y := make(map[GlobalColumnIndex]f32, context.temp_allocator)
+		pin_pos := make(map[GlobalColumnIndex]ig.Vec2, context.temp_allocator)
+
+		// The per-attribute pin marker is now redundant with the crow's-foot
+		// cardinality glyphs draw_fk_link draws on the link itself (same
+		// colour, same spot) — shrunk to a barely-visible anchor dot rather
+		// than removed outright, since BeginInputAttribute/OutputAttribute
+		// have no "no shape" option.
+		imn.PushStyleVarFloat(.PinCircleRadius, 1.5)
+		imn.PushStyleVarFloat(.PinTriangleSideLength, 1.5)
+
 		for table_idx in diagram.visible_tables {
 			pos := diagram.layout[table_idx]
 			imn.SetNodeGridSpacePos(i32(table_idx), pos.x, pos.y)
@@ -1680,23 +1699,62 @@ show_node_editor :: proc(app_state: ^AppState) {
 					} else {
 						imn.EndOutputAttribute()
 					}
+					row_min := ig.GetItemRectMin()
+					row_max := ig.GetItemRectMax()
+					pin_row_y[column_idx] = (row_min.y + row_max.y) * 0.5
 				}
 			}
 			imn.EndNode()
-		}
 
-		// FK links between visible tables. Link ids are the FK's index into
-		// the schema; pin ids are the raw GlobalColumnIndex values.
+			node_min := ig.GetItemRectMin()
+			node_max := ig.GetItemRectMax()
+			node_rects[table_idx] = Rect2{node_min, node_max}
+			for _, i in schema.columns[table.from_column:table.to_column] {
+				column_idx := GlobalColumnIndex(u32(table.from_column) + u32(i))
+				is_input, is_pin := pin_is_input[column_idx]
+				if !is_pin {
+					continue
+				}
+				x := is_input ? node_min.x - pin_offset : node_max.x + pin_offset
+				pin_pos[column_idx] = ig.Vec2{x, pin_row_y[column_idx]}
+			}
+		}
+		imn.PopStyleVar(2)
+
+		// FK links between visible tables, drawn ourselves (see
+		// link_routing.odin) rather than through ImNodes' own Link() so they
+		// can route around tables they'd otherwise cross and carry proper
+		// ER cardinality glyphs. Channel 0 is ImNodes' own link-background
+		// channel (set the same way in its EndNodeEditor, right before it
+		// loops over any Link() calls — there are none here — so this lands
+		// underneath every node exactly like a native link would.
+		draw_list := ig.GetWindowDrawList()
+		ig.DrawList_ChannelsSetCurrent(draw_list, 0)
+		link_color := imn.GetStyle().colors[imn.Col.Link]
+		link_thickness := imn.GetStyle().link_thickness
 		for table_idx in diagram.visible_tables {
 			table := schema.tables[table_idx]
 			if !table.has_foreign_keys {
 				continue
 			}
-			for fk, i in schema.foreign_keys[table.from_foreign_key:table.to_foreign_key] {
-				to_table := find_table_by_column(schema.tables[:], fk.to)
-				if to_table >= 0 && visible[GlobalTableIndex(u32(to_table))] {
-					imn.Link(i32(u32(table.from_foreign_key) + u32(i)), i32(fk.from), i32(fk.to))
+			for fk in schema.foreign_keys[table.from_foreign_key:table.to_foreign_key] {
+				to_i := find_table_by_column(schema.tables[:], fk.to)
+				if to_i < 0 || !visible[GlobalTableIndex(u32(to_i))] {
+					continue
 				}
+				to_table := GlobalTableIndex(u32(to_i))
+				many_optional := !schema.columns[fk.from].not_null
+				draw_fk_link(
+					draw_list,
+					node_rects,
+					to_table,
+					table_idx,
+					pin_pos[fk.to],
+					pin_pos[fk.from],
+					many_optional,
+					link_color,
+					link_thickness,
+				)
 			}
 		}
 
